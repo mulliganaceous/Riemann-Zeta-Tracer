@@ -19,6 +19,11 @@ public class ComplexPolar extends C {
 		// TODO Auto-generated method stub
 		return 0;
 	}
+	
+	@Override
+	public double sqnorm() {
+		return 0;
+	}
 
 	@Override
 	public double abs() {

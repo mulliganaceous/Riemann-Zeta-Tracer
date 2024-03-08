@@ -29,6 +29,11 @@ public class Complex extends C {
 	}
 	
 	@Override
+	public double sqnorm() {
+		return this.x*this.x + this.y*this.y;
+	}
+	
+	@Override
 	public double abs() {
 		return Math.sqrt(this.x*this.x + this.y*this.y);
 	}
@@ -64,6 +69,10 @@ public class Complex extends C {
 		return new Complex(re, im);
 	}
 	
+	public Complex mult(double factor) {
+		return new Complex(factor*this.re(), factor*this.im());
+	}
+	
 	@Override
 	public Complex div(C other) {
 		other = other.rect();
@@ -71,6 +80,10 @@ public class Complex extends C {
 		double reNum = this.re()*other.re() + this.im()*other.im();
 		double imNum = -this.re()*other.im() + this.im()*other.re();
 		return new Complex(reNum/denom, imNum/denom);
+	}
+	
+	public Complex div(double factor) {
+		return new Complex(this.re()/factor, this.im()/factor);
 	}
 	
 	public Complex raise(C exponent) { // TODO

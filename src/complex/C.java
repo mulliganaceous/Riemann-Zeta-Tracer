@@ -3,6 +3,7 @@ package complex;
 public abstract class C {
 	public abstract double re();
 	public abstract double im();
+	public abstract double sqnorm();
 	public abstract double abs();
 	public abstract double arg();
 	public abstract C conj();

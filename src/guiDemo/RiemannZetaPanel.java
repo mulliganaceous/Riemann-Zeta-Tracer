@@ -19,11 +19,13 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 	private static final long serialVersionUID = -1;
 	
 	private RiemannZetaCriticalModel model;
-	public final static int LENGTH = 640;
-	public final static int HEIGHT = 480;
+	public final static int LENGTH = 1280;
+	public final static int HEIGHT = 720;
 	public final static int ORIGIN_X = LENGTH/4;
 	public final static int ORIGIN_Y = HEIGHT/2;
 	public static int UNIT = 32;
+	private int state = 0;
+	private double arc = 0;
 	
 	public RiemannZetaPanel(RiemannZetaCriticalModel model)  {
 		this.model = model;
@@ -40,10 +42,51 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 	@Override
 	public void paintComponent(Graphics g) {
 		super.paintComponent(g);
-		long globalTimer = System.currentTimeMillis();
+		// long globalTimer = System.currentTimeMillis();
+		/*
+		double sqnorm = this.model.getZetaS().sqnorm();
+		if ((this.model.getForm()[1] & 3) != 0) {
+			double arcz = this.model.getDArc();
+			if (arcz != arc) {
+				state &= ~(3 << 1);
+				if (arcz < 0.01) {
+					state |= (3 << 1);
+				}
+				else if (arcz < Math.PI){
+					state |= (1 << 1);
+				}
+				arc = arcz;
+			}
+		}
+		if (sqnorm >= 100) {
+			state |= 1;
+		}
+		else {
+			state &= ~1;
+		}
+
+		if ((state & 1) == 1) {
+			UNIT = 64;
+		}
+		if (sqnorm < 2) {
+			if ((state & 0b100) != 0 && sqnorm < 1E-2) {
+				UNIT = 16384;
+			}
+			else if ((state & 0b110) != 0) {
+				UNIT = 256;
+			}
+		}
+		else if ((state & 0b110) != 0 && sqnorm >= 2) {
+			state &= ~(3 << 1);
+			UNIT = 32;
+		}
+		else {
+			UNIT = 32;
+		}
+		*/
 		this.model.getCommand().executeTraceDemo(g);
-		globalTimer = System.currentTimeMillis() - globalTimer;
-		System.out.printf("\tRepaint: %d ms\n", globalTimer);
+		// globalTimer = System.currentTimeMillis() - globalTimer;
+		// System.out.printf("\tRepaint: %d ms\n", globalTimer);
 	}
 	
 	public void saveImage(int k) {
@@ -55,7 +98,7 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 			Graphics2D g2 = bi.createGraphics();
 			this.repaint();
 			this.model.getCommand().executeTraceDemo(g2);
-			ImageIO.write(bi, "gif", new File("images/" + str + ".gif"));
+			ImageIO.write(bi, "gif", new File("images/" + str + ".png"));
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
