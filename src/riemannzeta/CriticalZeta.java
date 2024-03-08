@@ -67,7 +67,7 @@ public class CriticalZeta {
 		}
 		// Average out sums with positive and negative trailing term.
 		sum2 = sum.add(etaTerm(s,n));
-		return sum.add(sum2).div(new Complex(2,0));
+		return sum.add(sum2).div(2);
 	}
 	
 	public static Complex etaTerm(Complex s, int n) {
