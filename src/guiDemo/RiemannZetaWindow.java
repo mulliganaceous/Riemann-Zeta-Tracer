@@ -20,6 +20,7 @@ public class RiemannZetaWindow extends JFrame {
 	private static final int WINDOW_WIDTH = 1280;
 	private static final int WINDOW_HEIGHT = 720;
 	private static final int SLEEPDUR = 1000/144;
+	private static final int SLEEPFRAME = 0;
 	private static final int INITIAL = 0;
 	private static final int SKIPTO = 65536;
 	private static final int COUNTDOWN = 0;
@@ -40,7 +41,7 @@ public class RiemannZetaWindow extends JFrame {
 		// Set visible
 		this.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
 		this.pack();
-		this.setSize(new Dimension(WINDOW_WIDTH + this.getInsets().left + this.getInsets().right,WINDOW_HEIGHT + this.getInsets().top + this.getInsets().bottom));
+		this.setSize(new Dimension(WINDOW_WIDTH + this.getInsets().left + this.getInsets().right,WINDOW_HEIGHT + this.getInsets().top));
 		Image icon;
 		try {
 			icon = ImageIO.read(new File("images/Riemann65536.gif"));
@@ -64,7 +65,7 @@ public class RiemannZetaWindow extends JFrame {
 			double height = model.getHeight();
 			if (!Double.isNaN(height)) {
 				heightstr = String.format("last height: ~%3.3f\n", height);
-				System.out.printf("\t| ζ(s)|= %-31.3f" + heightstr, model.getZetaS().abs());
+				System.out.printf("\t| ζ(s)|= %-31.3E" + heightstr, model.getZetaS().abs());
 			}
 			
 			heightstr = "";
@@ -155,30 +156,12 @@ public class RiemannZetaWindow extends JFrame {
 				drecordprev = (int)drecord[6];
 				
 				// Increment
+				// Thread.sleep(SLEEPFRAME);
 				model.increment();
 			} catch (Exception exception) {
 				exception.printStackTrace();
 			}
 		}
-	}
-	
-	public static void main(String[] args) {
-		RiemannZetaWindow window = new RiemannZetaWindow();
-		window.skip(INITIAL + SKIPTO);
-		DrawPanel th1 = new DrawPanel(window);
-		try {
-			for (int k = COUNTDOWN; k > 0; k--) {
-				System.out.printf("\rCountdown: %2d", k);
-				Thread.sleep(1000);
-			}
-			System.out.println();
-			window.mPanel.saveImage(INITIAL + SKIPTO);
-			window.mPanel.repaint();
-		} catch (InterruptedException e) {
-			e.printStackTrace();
-		}
-		th1.start();
-		window.loop();
 	}
 	
 	static class DrawPanel implements Runnable {
@@ -206,5 +189,24 @@ public class RiemannZetaWindow extends JFrame {
 				t.start();
 			}
 		}
+	}
+	
+	public static void main(String[] args) {
+		RiemannZetaWindow window = new RiemannZetaWindow();
+		window.skip(INITIAL + SKIPTO);
+		DrawPanel th1 = new DrawPanel(window);
+		try {
+			for (int k = COUNTDOWN; k > 0; k--) {
+				System.out.printf("\rCountdown: %2d", k);
+				Thread.sleep(1000);
+			}
+			System.out.println();
+			window.mPanel.saveImage(INITIAL + SKIPTO);
+			window.mPanel.repaint();
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+		th1.start();
+		window.loop();
 	}
 }

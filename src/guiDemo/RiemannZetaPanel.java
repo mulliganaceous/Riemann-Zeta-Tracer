@@ -26,6 +26,8 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 	public static int UNIT = 32;
 	private int state = 0;
 	private double arc = 0;
+	private static short countdown = 0;
+	private static final short COUNTDOWN = (short) (RiemannZetaCriticalModel.INCREMENT_LEVEL/5);
 	
 	public RiemannZetaPanel(RiemannZetaCriticalModel model)  {
 		this.model = model;
@@ -42,10 +44,12 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 	@Override
 	public void paintComponent(Graphics g) {
 		super.paintComponent(g);
-		// long globalTimer = System.currentTimeMillis();
 		/*
 		double sqnorm = this.model.getZetaS().sqnorm();
 		if ((this.model.getForm()[1] & 3) != 0) {
+			this.countdown = COUNTDOWN;
+		}
+		if (this.countdown != 0) {
 			double arcz = this.model.getDArc();
 			if (arcz != arc) {
 				state &= ~(3 << 1);
@@ -69,8 +73,8 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 			UNIT = 64;
 		}
 		if (sqnorm < 2) {
-			if ((state & 0b100) != 0 && sqnorm < 1E-2) {
-				UNIT = 16384;
+			if ((state & 0b100) != 0 && sqnorm < 1E-4) {
+				UNIT = 65536;
 			}
 			else if ((state & 0b110) != 0) {
 				UNIT = 256;
@@ -83,8 +87,11 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 		else {
 			UNIT = 32;
 		}
+		this.countdown = (short) (this.countdown == 0 ? 0 : countdown - 1);
 		*/
+		
 		this.model.getCommand().executeTraceDemo(g);
+		
 		// globalTimer = System.currentTimeMillis() - globalTimer;
 		// System.out.printf("\tRepaint: %d ms\n", globalTimer);
 	}
