@@ -22,6 +22,8 @@ Presently, there are three basic versions of the Riemann zeta function:
     * The two zeroes also have an arc length of $8.131 \times 10^{-3}$ units, the shortest.
     * A comparable scenario occurs earlier at height $5229$.
         * Both the distance and arc length are slightly longer.
+* The FFFF edition does not animate the Riemann zeta function, but it calculates the entire path up to height 65536 with resolution 1024 and accuracy level 65536.
+    * It will output a 4K version of the image at the end.
 
 While the application is running, the console will output every time it increments by one imaginary unit, when it is about to detect a zero, and when it detects a zero. Additionally, the console will output when new records are being set. These include:
 
@@ -49,6 +51,10 @@ This version was not officially released. It originated as a 2018 project, and w
 
 Java Swing is now considered legacy. I will continue to add a couple more versions, and livestream one run in the near future.
 
+|Image                                 |Description
+|--------------------------------------|-----------
+|![h7021](./images/Riemann7021.png)   |Riemann zeta limaçon from the Lehmer pair and 16 unit after. The Lehmer arc is not visible at this scale, even at 4K.
+
 ## Resources
 
 * [Andrew Odlyzko: Tables of zeros of the Riemann zeta function](https://www-users.cse.umn.edu/~odlyzko/zeta_tables/index.html)
@@ -56,9 +62,3 @@ Java Swing is now considered legacy. I will continue to add a couple more versio
     * Contains downloads of zeroes at zettascale heights.
 * [LMFDB](https://www.lmfdb.org/zeros/zeta/)
     * A database containing the first hundred billion zeroes of the Riemann zeta function above the real line, with thirty-digit precision.
-
-<style type="text/css">
-    img {
-        width: 256px;
-    }
-</style>
