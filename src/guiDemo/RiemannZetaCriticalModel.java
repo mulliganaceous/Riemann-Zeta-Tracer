@@ -22,6 +22,7 @@ public class RiemannZetaCriticalModel extends Observable {
 	private double[] drecord = new double[] {Double.NEGATIVE_INFINITY, Double.NaN, Double.POSITIVE_INFINITY, Double.NaN, Double.NEGATIVE_INFINITY, Double.NaN, 0};
 	// Zero finding
 	private int[] form = new int[] {0,0};
+	private double[] target = {Double.NaN, Double.NaN};
 	// Offset and load
 	private int offset = 0;
 	private int load = 0;
@@ -119,6 +120,30 @@ public class RiemannZetaCriticalModel extends Observable {
 		this.load = 0;
 		this.zeroes = 0;
 	}
+	
+	private void updateZero(double prevheight) {
+		this.dheight = prevheight - this.height;
+		this.darc = this.zeropath;
+		if (this.dheight < this.xheight[0]) {
+			this.xheight[0] = this.dheight;
+			this.xheight[2] = this.height;
+			this.xheight[4] += 1;
+		}
+		if (this.zeropath < this.drecord[2]) {
+			this.drecord[2] = this.zeropath;
+			this.drecord[3] = this.height;
+			this.drecord[6] += 2;
+		}
+		if (this.zeropath > this.drecord[4]) {
+			this.drecord[4] = this.zeropath;
+			this.drecord[5] = this.height;
+			this.drecord[6] += 4;
+		}
+		this.height = prevheight;
+		this.zeropath = 0;
+		this.zeroes++;
+		this.form[1] = 2;
+	}
 
 	private void increment(double dy) {
 		double magnitude = this.zetaS.abs();
@@ -155,44 +180,49 @@ public class RiemannZetaCriticalModel extends Observable {
 				this.dzetaS[1] = this.dzetaS[0].sub(dprev);
 			}
 		}
+		// Zero detection
 		if (this.load >= 3) {
-			double dmag = this.getPath(offset - 2).sqnorm() - this.zetaS.sqnorm();
-			if (this.form[1] == 2) {
+			double dmag = this.zetaS.sqnorm() - this.getPath(offset - 2).sqnorm();
+			if ((this.form[1] & 2) != 0) {
 				this.form[1] = 0;
 			}
-			if (this.form[1] == 0 && magnitude <= pathseg*THRESHOLD && dmag > 0) {
+			if (this.form[1] == 0 && magnitude <= pathseg*THRESHOLD && dmag < 0) {
 				this.form[0] = quadrant;
 				this.form[1] = 1;
+				this.target[1] = magnitude;
+				System.out.println("> ");
 			}
 			else if (this.form[1] == 1) {
 				double prevheight = this.s.im() - dy;
 				System.out.print(this.form[0] + "" +  quadrant + " ");
-				if ((this.form[0] ^ quadrant) != 0) {
-					this.dheight = prevheight - this.height;
-					this.darc = this.zeropath;
-					if (this.dheight < this.xheight[0]) {
-						this.xheight[0] = this.dheight;
-						this.xheight[2] = this.height;
-						this.xheight[4] += 1;
-					}
-					if (this.zeropath < this.drecord[2]) {
-						this.drecord[2] = this.zeropath;
-						this.drecord[3] = this.height;
-						this.drecord[6] += 2;
-					}
-					if (this.zeropath > this.drecord[4]) {
-						this.drecord[4] = this.zeropath;
-						this.drecord[5] = this.height;
-						this.drecord[6] += 4;
-					}
-					this.height = prevheight;
-					this.zeropath = 0;
-					this.zeroes++;
+				if (magnitude < this.target[1]) {
+					this.target[1] = magnitude;
+					this.target[0] = prevheight;
+				}
+				if ((this.form[0] ^ quadrant) == 3) {
+					this.updateZero(prevheight);
 					System.out.printf("\nZero detected at height %.6f\u2148\007\n", prevheight);
 					this.form[1] = 2;
 				}
 				else if (magnitude >= pathseg*THRESHOLD ){
-					this.form[1] = 0;
+					if (this.target[1] < pathseg*THRESHOLD/2) {
+						this.updateZero(prevheight);
+						System.out.printf("\nZero detected at height %.6f\u2148 and accuracy factor %.6f", this.target[0], pathseg*THRESHOLD/this.target[1]);
+						if ((this.form[0] ^ quadrant) == 2) {
+							System.out.print(" [V]");
+							this.form[1] |= 8;
+						}
+						if ((this.form[0] ^ quadrant) == 1) {
+							System.out.print(" [H]");
+							this.form[1] |= 4;
+						}
+						System.out.print("\007\n");
+						this.form[1] |= 2;
+					}
+					else {
+						System.out.printf("\nNo zero around height %.6f\u2148", this.target[0]);
+						this.form[1] = 0;
+					}
 				}
 			}
 		}

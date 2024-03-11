@@ -16,6 +16,8 @@ import riemannzeta.CriticalZeta;
 public class OrbitRiemannCommand {
 	private RiemannZetaCriticalModel model;
 	private static final float ALPHA = 0.01f;
+	private static short countdown[] = {0,0,0,0,0,0};
+	private static final short COUNTDOWN = (short)(RiemannZetaCriticalModel.INCREMENT_LEVEL/30);
 	
 	public OrbitRiemannCommand(RiemannZetaCriticalModel model) {
 		this.model = model;
@@ -84,11 +86,16 @@ public class OrbitRiemannCommand {
 		}
 		
 		// Bottom
-		if (model.getForm()[1] == 2) {
-			g.setColor(Color.green);
+		if ((model.getForm()[1] & 2) != 0) {
+			countdown[0] = COUNTDOWN;
+			countdown[2] = (short) (model.getForm()[1] >> 2);
+		}
+		if (countdown[0] > 0) {
+			g.setColor(countdown[2] != 0 ? Color.yellow : Color.green);
+			countdown[0]--;
 		}
 		else if (model.getForm()[1] == 1) {
-			g.setColor(Color.green);
+			g.setColor(Color.orange);
 		}
 		String heightstr = "";
 		double height = model.getHeight();
@@ -119,7 +126,11 @@ public class OrbitRiemannCommand {
 		}
 		g.setColor(new Color(255, 255, 255, 128));
 		if ((xind & 1) == 1) {
+			countdown[1] = COUNTDOWN;
+		}
+		if (countdown[1] > 0) {
 			g.setColor(Color.green);
+			countdown[1]--;
 		}
 		g.drawString(String.format(heightstr, model.getZeroes()), 328, 12);
 		
@@ -143,7 +154,11 @@ public class OrbitRiemannCommand {
 		}
 		g.setColor(new Color(255, 255, 255, 128));
 		if ((dind & 2) != 0) {
+			countdown[3] = COUNTDOWN;
+		}
+		if (countdown[3] > 0) {
 			g.setColor(Color.green);
+			countdown[3]--;
 		}
 		g.drawString(String.format(heightstr), 328, 36);
 		
@@ -154,8 +169,12 @@ public class OrbitRiemannCommand {
 			heightstr = String.format("Longest : L \u2248 %3.3f @ h \u2248 %3.3f", drecord[4], drecord[5]);
 		}
 		g.setColor(new Color(255, 255, 255, 128));
-		if ((dind & 4) != 0) {
+		if ((xind & 4) != 0) {
+			countdown[4] = COUNTDOWN;
+		}
+		if (countdown[4] > 0) {
 			g.setColor(Color.green);
+			countdown[4]--;
 		}
 		g.drawString(String.format(heightstr), 328, 48);
 		
