@@ -29,7 +29,7 @@ public class RiemannZetaCriticalModel extends Observable {
 	private OrbitRiemannCommand command;
 	
 	public static final int INCREMENT_LEVEL = 1024;
-	public static final double INCREMENT = (double) 1/INCREMENT_LEVEL;
+	public static final double INCREMENT = 1./INCREMENT_LEVEL;
 	public static int ACCURACY_LEVEL = 65536; //1048576
 	public static final double THRESHOLD = 4;
 	public static final int BUFFERFACTOR = 2;
@@ -186,14 +186,14 @@ public class RiemannZetaCriticalModel extends Observable {
 			if ((this.form[1] & 2) != 0) {
 				this.form[1] = 0;
 			}
-			if (this.form[1] == 0 && magnitude <= pathseg*THRESHOLD && dmag < 0) {
+			if (this.form[1] == 0 && (magnitude <= pathseg*THRESHOLD || magnitude <= 1/1000.) && dmag < 0) {
 				this.form[0] = quadrant;
 				this.form[1] = 1;
 				this.target[1] = magnitude;
-				System.out.println("> ");
+				System.out.print(">>> ");
 			}
 			else if (this.form[1] == 1) {
-				double prevheight = this.s.im() - dy;
+				double prevheight = this.s.im();
 				System.out.print(this.form[0] + "" +  quadrant + " ");
 				if (magnitude < this.target[1]) {
 					this.target[1] = magnitude;
@@ -201,10 +201,14 @@ public class RiemannZetaCriticalModel extends Observable {
 				}
 				if ((this.form[0] ^ quadrant) == 3) {
 					this.updateZero(prevheight);
-					System.out.printf("\nZero detected at height %.6f\u2148\007\n", prevheight);
+					if (magnitude <= pathseg*THRESHOLD)
+						System.out.printf("\nZero detected at height %.6f\u2148\007\n", prevheight);
+					else {
+						System.out.printf("\nZero detected at height %.6f\u2148 and accuracy factor %.6f [I]\n", this.target[0], pathseg*THRESHOLD/this.target[1]);
+					}
 					this.form[1] = 2;
 				}
-				else if (magnitude >= pathseg*THRESHOLD ){
+				else if (magnitude >= pathseg*THRESHOLD && magnitude >= 1/1000.){
 					if (this.target[1] < pathseg*THRESHOLD/2) {
 						this.updateZero(prevheight);
 						System.out.printf("\nZero detected at height %.6f\u2148 and accuracy factor %.6f", this.target[0], pathseg*THRESHOLD/this.target[1]);
@@ -220,19 +224,18 @@ public class RiemannZetaCriticalModel extends Observable {
 						this.form[1] |= 2;
 					}
 					else {
-						System.out.printf("\nNo zero around height %.6f\u2148", this.target[0]);
-						this.form[1] = 0;
+						System.out.printf("\nNo zero around height %.6f\u2148\n", this.target[0]);
+						this.form[1] = -1;
 					}
 				}
 			}
 		}
-		
 		this.setS(new Complex(s.re(), s.im() + dy));
 	}
 	
 	public void increment() {
 		// long globalTimer = System.currentTimeMillis();
-		this.increment(1/(double) INCREMENT_LEVEL);
+		this.increment(1./INCREMENT_LEVEL);
 		// globalTimer = System.currentTimeMillis() - globalTimer;
 		// System.out.printf("\tEvaluate: %d ms\n", globalTimer);
 	}

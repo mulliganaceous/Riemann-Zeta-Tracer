@@ -15,15 +15,16 @@ import riemannzeta.CriticalZeta;
 
 public class OrbitRiemannCommand {
 	private RiemannZetaCriticalModel model;
-	private static final float ALPHA = 0.01f;
-	private static short countdown[] = {0,0,0,0,0,0};
-	private static final short COUNTDOWN = (short)(RiemannZetaCriticalModel.INCREMENT_LEVEL/30);
+	private static final float ALPHA = 1f;
+	public static short countdown[] = {0,0,0,0,0,0};
+	public static final short COUNTDOWN = (short)(15);
 	
 	public OrbitRiemannCommand(RiemannZetaCriticalModel model) {
 		this.model = model;
 	}
 	
 	public void grid(Graphics g) {
+		// Grid
 		g.setColor(new Color(255, 255, 255, 32));
 		g.drawLine(0, ORIGIN_Y, LENGTH, ORIGIN_Y);
 		g.drawLine(ORIGIN_X, 0, ORIGIN_X, HEIGHT);
@@ -37,11 +38,12 @@ public class OrbitRiemannCommand {
 		g.drawLine(ORIGIN_X, ORIGIN_Y-UNIT/8, ORIGIN_X, ORIGIN_Y+UNIT/8);
 		g.drawLine(ORIGIN_X-UNIT/8, ORIGIN_Y, ORIGIN_X+UNIT/8, ORIGIN_Y);
 		g.drawOval(ORIGIN_X-UNIT, ORIGIN_Y-UNIT, UNIT*2, UNIT*2);
+		g.drawRect(ORIGIN_X-UNIT/1000, ORIGIN_Y-UNIT/1000, UNIT/500, UNIT/500);
 		
 		// Top
 		String realstr, imstr;
 		g.setFont(new Font("Unifont", 0, 16));
-		g.drawString(String.format("   s =  0.5      + %.6fi", model.getS().im()), 8, 12);
+		g.drawString(String.format("   s =  0.5      + %.6fi", model.getS().im()), 8, 16);
 		
 		if (model.getZetaS().re() < 0)
 			realstr = String.format(" ζ(s)= -%3.6f", -model.getZetaS().re());
@@ -51,10 +53,9 @@ public class OrbitRiemannCommand {
 			imstr = String.format(" - %3.6fi", -model.getZetaS().im());
 		else
 			imstr = String.format(" + %3.6fi", model.getZetaS().im());
-		g.drawString(realstr + imstr, 8, 24);
+		g.drawString(realstr + imstr, 8, 32);
 		
 		Complex dzeta = model.getDzetaS()[0];
-		Complex dzetaprev = null;
 		Complex ddzeta = model.getDzetaS()[1];
 		if (dzeta != null) {
 			if (dzeta.re() < 0)
@@ -65,7 +66,7 @@ public class OrbitRiemannCommand {
 				imstr = String.format(" - %3.6fi", -dzeta.im()*RiemannZetaCriticalModel.INCREMENT_LEVEL);
 			else
 				imstr = String.format(" + %3.6fi", dzeta.im()*RiemannZetaCriticalModel.INCREMENT_LEVEL);
-			g.drawString(realstr + imstr, 8, 36);
+			g.drawString(realstr + imstr, 8, 48);
 		}
 		if (ddzeta != null) {
 			if (ddzeta.re() < 0)
@@ -76,22 +77,18 @@ public class OrbitRiemannCommand {
 				imstr = String.format(" - %3.6fi", -ddzeta.im()*RiemannZetaCriticalModel.INCREMENT_LEVEL*RiemannZetaCriticalModel.INCREMENT_LEVEL);
 			else
 				imstr = String.format(" + %3.6fi", ddzeta.im()*RiemannZetaCriticalModel.INCREMENT_LEVEL*RiemannZetaCriticalModel.INCREMENT_LEVEL);
-			g.drawString(realstr + imstr, 8, 48);
+			g.drawString(realstr + imstr, 8, 64);
 			
 			Complex ndzeta = dzeta.div(dzeta.abs());
 			Complex nddzeta = dzeta.sub(ddzeta);
 			nddzeta = nddzeta.div(nddzeta.abs());
 			double cross = ndzeta.re()*nddzeta.im() - ndzeta.im()*nddzeta.re();
-			g.drawString(String.format("dArg = %+3.3f°", Math.asin(cross)*180/Math.PI*RiemannZetaCriticalModel.INCREMENT_LEVEL), 8, 60);
+			g.drawString(String.format("dArg = %+3.3f°", Math.asin(cross)*180/Math.PI*RiemannZetaCriticalModel.INCREMENT_LEVEL), 8, 80);
 		}
 		
 		// Bottom
-		if ((model.getForm()[1] & 2) != 0) {
-			countdown[0] = COUNTDOWN;
-			countdown[2] = (short) (model.getForm()[1] >> 2);
-		}
 		if (countdown[0] > 0) {
-			g.setColor(countdown[2] != 0 ? Color.yellow : Color.green);
+			g.setColor(countdown[2] != 0 ? (countdown[2] < 0 ? Color.red : Color.yellow) : Color.green);
 			countdown[0]--;
 		}
 		else if (model.getForm()[1] == 1) {
@@ -102,12 +99,12 @@ public class OrbitRiemannCommand {
 		if (!Double.isNaN(height)) {
 			heightstr = String.format("last height: ~%3.3f", height);
 		}
-		g.drawString(String.format("| ζ(s)|= %-31.3f\t" + heightstr, model.getZetaS().abs()), 8, 696);
+		g.drawString(String.format("| ζ(s)|= %-31.3f\t" + heightstr, model.getZetaS().abs()), 8, RiemannZetaPanel.HEIGHT-48);
 		
 		heightstr = "";
 		double zeropathlength = model.getZeropath();
 		heightstr = String.format("arc length : %3.3f", zeropathlength);
-		g.drawString(String.format("|ζ′(s)|= %-31.3f" + heightstr, model.getSpeed()), 8, 708);
+		g.drawString(String.format("|ζ′(s)|= %-31.3f" + heightstr, model.getSpeed()), 8, RiemannZetaPanel.HEIGHT-32);
 		
 		heightstr = "";
 		double dheight = model.getDHeight();
@@ -115,7 +112,7 @@ public class OrbitRiemannCommand {
 		if (!Double.isNaN(dheight)) {
 			heightstr = String.format("distance   : ~%3.3f (arc: %3.3f)", dheight, darc);
 		}
-		g.drawString(String.format(" zeros \u2248 %-31d" + heightstr, model.getZeroes()), 8, 720);
+		g.drawString(String.format(" zeros \u2248 %-31d" + heightstr, model.getZeroes()), 8, RiemannZetaPanel.HEIGHT-16);
 		
 		// Records
 		heightstr = "";
@@ -125,14 +122,11 @@ public class OrbitRiemannCommand {
 			heightstr = String.format("Closest : Δ \u2248 %3.3E @ h1\u2248 %3.3f", xheight[0], xheight[2]);
 		}
 		g.setColor(new Color(255, 255, 255, 128));
-		if ((xind & 1) == 1) {
-			countdown[1] = COUNTDOWN;
-		}
 		if (countdown[1] > 0) {
 			g.setColor(Color.green);
 			countdown[1]--;
 		}
-		g.drawString(String.format(heightstr, model.getZeroes()), 328, 12);
+		g.drawString(String.format(heightstr, model.getZeroes()), 328, 16);
 		
 		heightstr = "";
 		if (!Double.isNaN(xheight[3])) {
@@ -142,7 +136,7 @@ public class OrbitRiemannCommand {
 		if ((xind & 2) != 0) {
 			g.setColor(Color.green);
 		}
-		g.drawString(String.format(heightstr, model.getZeroes()), 328, 24);
+		g.drawString(String.format(heightstr, model.getZeroes()), 328, 32);
 		
 		g.setColor(new Color(255, 255, 255, 128));
 		
@@ -153,14 +147,11 @@ public class OrbitRiemannCommand {
 			heightstr = String.format("Shortest: L \u2248 %3.3E @ h \u2248 %3.3f", drecord[2], drecord[3]);
 		}
 		g.setColor(new Color(255, 255, 255, 128));
-		if ((dind & 2) != 0) {
-			countdown[3] = COUNTDOWN;
-		}
 		if (countdown[3] > 0) {
 			g.setColor(Color.green);
 			countdown[3]--;
 		}
-		g.drawString(String.format(heightstr), 328, 36);
+		g.drawString(String.format(heightstr), 328, 48);
 		
 		g.setColor(new Color(255, 255, 255, 128));
 		
@@ -169,14 +160,11 @@ public class OrbitRiemannCommand {
 			heightstr = String.format("Longest : L \u2248 %3.3f @ h \u2248 %3.3f", drecord[4], drecord[5]);
 		}
 		g.setColor(new Color(255, 255, 255, 128));
-		if ((xind & 4) != 0) {
-			countdown[4] = COUNTDOWN;
-		}
 		if (countdown[4] > 0) {
 			g.setColor(Color.green);
 			countdown[4]--;
 		}
-		g.drawString(String.format(heightstr), 328, 48);
+		g.drawString(String.format(heightstr), 328, 64);
 		
 		g.setColor(new Color(255, 255, 255, 128));
 		
@@ -188,7 +176,12 @@ public class OrbitRiemannCommand {
 		if ((dind & 1) != 0) {
 			g.setColor(Color.green);
 		}
-		g.drawString(String.format(heightstr), 328, 60);
+		g.drawString(String.format(heightstr), 328, 80);
+		
+		g.setColor(new Color(0xFB, 0x22, 0xD0));
+		g.fillRect(0, RiemannZetaPanel.HEIGHT-15, 8*61, 16);
+		g.setColor(new Color(0x5E, 0x00, 0x45));
+		g.drawString("Riemann Zeta Tracer v2.9.FFFF | ⓒ 2018-2024 mulliganaceous", 8, RiemannZetaPanel.HEIGHT-0);
 		
 		g.setColor(new Color(255, 255, 255, 128));
 	}
@@ -204,8 +197,7 @@ public class OrbitRiemannCommand {
 		System.out.println(model.getZetaS());
 	}
 	
-	public void executeTraceDemo(Graphics g) {
-		grid(g);
+	public void executeTrace(Graphics g) {
 		final int Ox = RiemannZetaPanel.ORIGIN_X;
 		final int Oy = RiemannZetaPanel.ORIGIN_Y;
 		final int U = RiemannZetaPanel.UNIT;
@@ -220,12 +212,12 @@ public class OrbitRiemannCommand {
 		
 		int offset = this.model.getOffset() - 1;
 		final int load = this.model.getLoad();
-		for (double k = load - 1; k >= 0; k--) {
+		for (double k = 0; k < load; k++) {
 			// Code and graphing runs here
 			z2 = this.model.getPath(offset);
 			x2 = (int) (Ox + U * z2.re());
 			y2 = (int) (Oy - U * z2.im());
-			Color curColor = Color.getHSBColor((float) ((3/4f)*(k/(float) model.getMaxLoad())), 0.75f, 1);
+			Color curColor = Color.getHSBColor((float) ((13/16f)*((load - k)/(float) model.getMaxLoad())), 0.75f, 1);
 			curColor = new Color(curColor.getRed()/255.0f, curColor.getGreen()/255.0f, curColor.getBlue()/255.0f, ALPHA);
 			g.setColor(curColor);
 			g.drawLine(x, y, x2, y2);
@@ -234,6 +226,7 @@ public class OrbitRiemannCommand {
 			y = y2;
 			offset--;
 		}
+		grid(g);
 	}
 	
 	public void executeVector(Graphics g) {
