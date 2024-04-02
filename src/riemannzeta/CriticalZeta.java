@@ -106,6 +106,7 @@ public class CriticalZeta {
 			double im = key.nextDouble();
 			Complex s = new Complex(re,im);
 			System.out.printf("zeta(%f,%f) = %s\n", re, im, zeta(s,(int)10E6));
+			key.close();
 		}
 	}
 }

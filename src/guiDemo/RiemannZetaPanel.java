@@ -19,10 +19,10 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 	private static final long serialVersionUID = -1;
 	
 	private RiemannZetaCriticalModel model;
-	public final static int LENGTH = 1280;
-	public final static int HEIGHT = 720;
-	public final static int ORIGIN_X = LENGTH/4;
-	public final static int ORIGIN_Y = HEIGHT/2;
+	public static int LENGTH = RiemannZetaWindow.WINDOW_WIDTH;
+	public static int HEIGHT = RiemannZetaWindow.WINDOW_HEIGHT;
+	public static int ORIGIN_X = LENGTH/4;
+	public static int ORIGIN_Y = HEIGHT/2;
 	public static int UNIT = 32;
 	private int state = 0;
 	private double arc = 0;
@@ -41,15 +41,12 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 		this.model.setS(new Complex(0.5,0));
 	}
 	
-	@Override
-	public void paintComponent(Graphics g) {
-		super.paintComponent(g);
-		/*
+	public void zoomlevel() {
 		double sqnorm = this.model.getZetaS().sqnorm();
 		if ((this.model.getForm()[1] & 3) != 0) {
-			this.countdown = COUNTDOWN;
+			RiemannZetaPanel.countdown = COUNTDOWN;
 		}
-		if (this.countdown != 0) {
+		if (RiemannZetaPanel.countdown != 0) {
 			double arcz = this.model.getDArc();
 			if (arcz != arc) {
 				state &= ~(3 << 1);
@@ -68,12 +65,12 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 		else {
 			state &= ~1;
 		}
-
+		
 		if ((state & 1) == 1) {
-			UNIT = 64;
+			UNIT = 16;
 		}
-		if (sqnorm < 2) {
-			if ((state & 0b100) != 0 && sqnorm < 1E-4) {
+		else if (sqnorm < 2) {
+			if ((state & 0b100) != 0 && sqnorm < 1/16.) {
 				UNIT = 65536;
 			}
 			else if ((state & 0b110) != 0) {
@@ -87,10 +84,42 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 		else {
 			UNIT = 32;
 		}
-		this.countdown = (short) (this.countdown == 0 ? 0 : countdown - 1);
-		*/
-		
-		this.model.getCommand().executeTraceDemo(g);
+		RiemannZetaPanel.countdown = (short) (RiemannZetaPanel.countdown == 0 ? 0 : countdown - 1);
+	}
+	
+	public static void setDimensions(int length, int height) {
+		LENGTH = length;
+		HEIGHT = height;
+		ORIGIN_X = LENGTH/4;
+		ORIGIN_Y = HEIGHT/2;
+	}
+	
+	public void countdown() {
+		double[] xheight = model.getXHeight();
+		int xind = (int) xheight[4];
+
+		if ((model.getForm()[1] & 2) != 0) {
+			OrbitRiemannCommand.countdown[0] = OrbitRiemannCommand.COUNTDOWN;
+			OrbitRiemannCommand.countdown[2] = (short) (model.getForm()[1] >> 2);
+		}
+		if ((xind & 1) == 1) {
+			OrbitRiemannCommand.countdown[1] = OrbitRiemannCommand.COUNTDOWN;
+		}
+		double[] drecord = model.getDrecord();
+		int dind = (int) drecord[6];
+		if ((dind & 2) != 0) {
+			OrbitRiemannCommand.countdown[3] = OrbitRiemannCommand.COUNTDOWN;
+		}
+		if ((dind & 4) != 0) {
+			OrbitRiemannCommand.countdown[4] = OrbitRiemannCommand.COUNTDOWN;
+		}
+	}
+	
+	@Override
+	public void paintComponent(Graphics g) {
+		super.paintComponent(g);
+		RiemannZetaPanel.setDimensions(getWidth(), getHeight());
+		this.model.getCommand().executeTrace(g);
 		
 		// globalTimer = System.currentTimeMillis() - globalTimer;
 		// System.out.printf("\tRepaint: %d ms\n", globalTimer);
@@ -98,14 +127,14 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 	
 	public void saveImage(int k) {
 	    try {
-	    	String str = String.format("Riemann%04d", 
+	    	String str = String.format("Riemann0x%04x", 
 	    			k);
 			BufferedImage bi = new BufferedImage
 					(LENGTH, HEIGHT, BufferedImage.TYPE_INT_RGB);
 			Graphics2D g2 = bi.createGraphics();
 			this.repaint();
-			this.model.getCommand().executeTraceDemo(g2);
-			ImageIO.write(bi, "gif", new File("images/" + str + ".png"));
+			this.model.getCommand().executeTrace(g2);
+			ImageIO.write(bi, "png", new File("images/" + str + ".png"));
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
