@@ -5,7 +5,9 @@ The trailing part of the path is colored red, while the leading part of the path
 
 This is the program that runs for the **Operation: Hashling** livestream, where Discord starts assigning unique usernames to the remaining users who have not updated their usernames themselves.
 
-* https://www.youtube.com/watch?v=SdJTK-k7FcM
+![hxFFFF](./images/Riemann0x10000.png)
+* **Highlight:** https://www.youtube.com/watch?v=6XrqDJFJR5k
+* **Livestream:** https://www.youtube.com/live/7Mk4GemMQ1M?feature=shared
 
 ## How to Run
 
