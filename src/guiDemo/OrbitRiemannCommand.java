@@ -6,9 +6,11 @@ import static guiDemo.RiemannZetaPanel.ORIGIN_X;
 import static guiDemo.RiemannZetaPanel.ORIGIN_Y;
 import static guiDemo.RiemannZetaPanel.UNIT;
 
+import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics;
+import java.awt.Graphics2D;
 
 import complex.Complex;
 import riemannzeta.CriticalZeta;
@@ -16,6 +18,8 @@ import riemannzeta.CriticalZeta;
 public class OrbitRiemannCommand {
 	private RiemannZetaCriticalModel model;
 	private static final float ALPHA = 1f;
+	private static final BasicStroke THIN = new BasicStroke(1);
+	private static final BasicStroke THICK = new BasicStroke(3);
 	public static short countdown[] = {0,0,0,0,0,0};
 	public static final short COUNTDOWN = (short)(15);
 	
@@ -181,7 +185,7 @@ public class OrbitRiemannCommand {
 		g.setColor(new Color(0xFB, 0x22, 0xD0));
 		g.fillRect(0, RiemannZetaPanel.HEIGHT-15, 8*61, 16);
 		g.setColor(new Color(0x5E, 0x00, 0x45));
-		g.drawString("Riemann Zeta Tracer v2.9.FFFF | ⓒ 2018-2024 mulliganaceous", 8, RiemannZetaPanel.HEIGHT-0);
+		g.drawString("Riemann Zeta Tracer v2.A.FFFF | ⓒ 2018-2024 mulliganaceous", 8, RiemannZetaPanel.HEIGHT-0);
 		
 		g.setColor(new Color(255, 255, 255, 128));
 	}
@@ -202,30 +206,44 @@ public class OrbitRiemannCommand {
 		final int Oy = RiemannZetaPanel.ORIGIN_Y;
 		final int U = RiemannZetaPanel.UNIT;
 		
-		Complex z2 = this.model.getZetaS();
+		int offset = this.model.getOffset();
+		final int load = this.model.getLoad();
+		
+		Complex z2 = this.model.getPath(-load + offset);
+		if (z2 == null) {
+			z2 = this.model.getZetaS();
+			int x = (int) (Ox + U * z2.re());
+			int y = (int) (Oy - U * z2.im());
+			g.setColor(Color.WHITE);
+			g.drawLine(x - 4, y - 4, x + 4, y + 4);
+			g.drawLine(x - 4, y + 4, x + 4, y - 4);
+			((Graphics2D) g).setStroke(THIN);
+			grid(g);
+			return;
+		}
 		int x = (int) (Ox + U * z2.re());
 		int y = (int) (Oy - U * z2.im());
-		g.setColor(Color.WHITE);
-		g.drawLine(x - 2, y - 2, x + 2, y + 2);
-		g.drawLine(x - 2, y + 2, x + 2, y - 2);
 		int x2, y2;
 		
-		int offset = this.model.getOffset() - 1;
-		final int load = this.model.getLoad();
-		for (double k = 0; k < load; k++) {
+		for (int k = 1; k <= load; k++) {
 			// Code and graphing runs here
-			z2 = this.model.getPath(offset);
+			z2 = k == load ? this.model.getZetaS() : this.model.getPath(-load + offset + k);
 			x2 = (int) (Ox + U * z2.re());
 			y2 = (int) (Oy - U * z2.im());
-			Color curColor = Color.getHSBColor((float) ((13/16f)*((load - k)/(float) model.getMaxLoad())), 0.75f, 1);
+			Color curColor = Color.getHSBColor((float) ((13/16f)*(k/(float) model.getMaxLoad())), 0.75f, 1);
 			curColor = new Color(curColor.getRed()/255.0f, curColor.getGreen()/255.0f, curColor.getBlue()/255.0f, ALPHA);
+			// Process for graphing
+	        ((Graphics2D) g).setStroke(THICK);
 			g.setColor(curColor);
 			g.drawLine(x, y, x2, y2);
-			
+			// Update coordinate
 			x = x2;
 			y = y2;
-			offset--;
 		}
+		g.setColor(Color.WHITE);
+		g.drawLine(x - 4, y - 4, x + 4, y + 4);
+		g.drawLine(x - 4, y + 4, x + 4, y - 4);
+		((Graphics2D) g).setStroke(THIN);
 		grid(g);
 	}
 	

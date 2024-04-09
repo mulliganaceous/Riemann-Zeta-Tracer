@@ -127,12 +127,9 @@ public class RiemannZetaPanel extends JPanel implements Observer {
 	
 	public void saveImage(int k) {
 	    try {
-	    	String str = String.format("Riemann0x%04x", 
-	    			k);
-			BufferedImage bi = new BufferedImage
-					(LENGTH, HEIGHT, BufferedImage.TYPE_INT_RGB);
+	    	String str = String.format("Riemann0x%04x", k);
+			BufferedImage bi = new BufferedImage(LENGTH, HEIGHT, BufferedImage.TYPE_INT_RGB);
 			Graphics2D g2 = bi.createGraphics();
-			this.repaint();
 			this.model.getCommand().executeTrace(g2);
 			ImageIO.write(bi, "png", new File("images/" + str + ".png"));
 		} catch (IOException e) {
