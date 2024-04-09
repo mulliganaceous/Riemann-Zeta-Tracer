@@ -30,7 +30,7 @@ public class RiemannZetaCriticalModel extends Observable {
 	
 	public static final int INCREMENT_LEVEL = 1024;
 	public static final double INCREMENT = 1./INCREMENT_LEVEL;
-	public static int ACCURACY_LEVEL = 65536; //1048576
+	public static int ACCURACY_LEVEL = 2<<16;
 	public static final double THRESHOLD = 4;
 	public static final int BUFFERFACTOR = 2;
 	
@@ -224,7 +224,7 @@ public class RiemannZetaCriticalModel extends Observable {
 						this.form[1] |= 2;
 					}
 					else {
-						System.out.printf("\nNo zero around height %.6f\u2148\n", this.target[0]);
+						System.out.printf("\nNo zero around height %.6f, accuracy factor %.6f, \u2148\n", this.target[0], pathseg*THRESHOLD/this.target[1]);
 						this.form[1] = -1;
 					}
 				}
@@ -234,10 +234,7 @@ public class RiemannZetaCriticalModel extends Observable {
 	}
 	
 	public void increment() {
-		// long globalTimer = System.currentTimeMillis();
 		this.increment(1./INCREMENT_LEVEL);
-		// globalTimer = System.currentTimeMillis() - globalTimer;
-		// System.out.printf("\tEvaluate: %d ms\n", globalTimer);
 	}
 	
 	public OrbitRiemannCommand getCommand() {

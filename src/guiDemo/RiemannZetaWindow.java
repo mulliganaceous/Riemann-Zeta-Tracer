@@ -17,16 +17,17 @@ import complex.Complex;
  */
 public class RiemannZetaWindow extends JFrame {
 	private static final long serialVersionUID = -1;
-	public static final int WINDOW_WIDTH = 1920;
-	public static final int WINDOW_HEIGHT = 1080;
+	public static final int WINDOW_WIDTH = 1280;
+	public static final int WINDOW_HEIGHT = 720;
 	private static final int SLEEPDUR = 1000/144;
-	private static final int SLEEPFRAME = 0;
+	private static final int SLEEPFRAME = 1000/144;
 	private static final double INITIAL = 0;
 	private static int SKIPTO = 0;
-	private static int COUNTDOWN = 0;
-	RiemannZetaCriticalModel model = new RiemannZetaCriticalModel();
-	RiemannZetaPanel mPanel = new RiemannZetaPanel(model);
-	RiemannZetaSelection sPanel = new RiemannZetaSelection(model);
+	private static int CHECKPOINT = 256;
+	private static int COUNTDOWN = 4;
+	private RiemannZetaCriticalModel model = new RiemannZetaCriticalModel();
+	private RiemannZetaPanel mPanel = new RiemannZetaPanel(model);
+	// private RiemannZetaSelection sPanel = new RiemannZetaSelection(model);
 	
 	public RiemannZetaWindow() {
 		super();
@@ -41,10 +42,12 @@ public class RiemannZetaWindow extends JFrame {
 		// Set visible
 		this.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
 		this.pack();
-		this.setSize(new Dimension(WINDOW_WIDTH + this.getInsets().left + this.getInsets().right,WINDOW_HEIGHT + this.getInsets().top + this.getInsets().bottom));
+		this.setSize(new Dimension(
+				WINDOW_WIDTH /*+ this.getInsets().left + this.getInsets().right*/, 
+				WINDOW_HEIGHT /*+ this.getInsets().top + this.getInsets().bottom*/));
 		Image icon;
 		try {
-			icon = ImageIO.read(new File("images/Riemann65536.gif"));
+			icon = ImageIO.read(new File("images/RiemannLogo.gif"));
 			this.setIconImage(icon);
 		} catch (IOException e) {
 			e.printStackTrace();
@@ -116,7 +119,7 @@ public class RiemannZetaWindow extends JFrame {
 		drecordprev = (int)drecord[6];
 	}
 	
-	void skip(double height, double checkpoint) {
+	private void skip(double height, double checkpoint) {
 		double curheight = this.model.getS().im();
 		int xheightprev = 0;
 		int drecordprev = 0;
@@ -139,8 +142,15 @@ public class RiemannZetaWindow extends JFrame {
 			curheight = this.model.getS().im();
 		}
 		RiemannZetaPanel.setDimensions(3840, 2160);
+		this.mPanel.zoomlevel();
 		RiemannZetaPanel.UNIT = 64;
-		this.mPanel.saveImage((int)(curheight));
+		try {
+			Thread.sleep(5000);
+			this.mPanel.saveImage((int)(curheight));
+			Thread.sleep(5000);
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
 		this.mPanel.repaint();
 		RiemannZetaPanel.setDimensions(WINDOW_WIDTH, WINDOW_HEIGHT);
 		RiemannZetaPanel.UNIT = 32;
@@ -148,11 +158,14 @@ public class RiemannZetaWindow extends JFrame {
 		// Transition to loop
 	}
 	
-	void loop() {
+	private void loop() {
 		int xheightprev = 0;
 		int drecordprev = 0;
+		long globalTimer, globalTimeElapsed = 0;
+		short timeremaining = 0;
 		while(true) {
 			try {
+				globalTimer = System.currentTimeMillis();
 				Complex s = model.getS();
 				Complex z = model.getZetaS();
 				if (model.getOffset() % RiemannZetaCriticalModel.INCREMENT_LEVEL == 0)
@@ -168,18 +181,20 @@ public class RiemannZetaWindow extends JFrame {
 				// Update countdown
 				this.mPanel.zoomlevel();
 				this.mPanel.countdown();
-				this.setTitle(String.format("Million Dollar Limaçon (%d×%d)", getHeight(), getWidth()));
+				this.setTitle(String.format("Million Dollar Limaçon (%d×%d)", this.getBounds().height, this.getBounds().width));
 				
 				// Increment
-				Thread.sleep(SLEEPFRAME);
 				model.increment();
+				globalTimeElapsed = System.currentTimeMillis() - globalTimer;
+				timeremaining = (short) (SLEEPFRAME - globalTimeElapsed);
+				Thread.sleep(timeremaining < 0 ? 0 : timeremaining);
 			} catch (Exception exception) {
 				exception.printStackTrace();
 			}
 		}
 	}
 	
-	static class DrawPanel implements Runnable {
+	private static class DrawPanel implements Runnable {
 		Thread t;
 		RiemannZetaWindow window;
 		public DrawPanel(RiemannZetaWindow window) {
@@ -208,7 +223,8 @@ public class RiemannZetaWindow extends JFrame {
 	
 	public static void main(String[] args) {
 		RiemannZetaWindow window = new RiemannZetaWindow();
-		window.skip((int)(INITIAL + SKIPTO), 256);
+		if (SKIPTO > 0)
+			window.skip((int)(INITIAL + SKIPTO), CHECKPOINT);
 		DrawPanel th1 = new DrawPanel(window);
 		try {
 			for (int k = COUNTDOWN; k > 0; k--) {

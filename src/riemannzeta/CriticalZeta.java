@@ -5,8 +5,13 @@ import java.util.Scanner;
 import complex.Complex;
 import riemannzeta.PrimeList;
 
+import java.util.concurrent.CyclicBarrier;
+
 @SuppressWarnings("unused")
 public class CriticalZeta {
+	private static final int THREADS = 12;
+	private static final Complex[] sums = new Complex[THREADS];
+	private static final CyclicBarrier barrier = new CyclicBarrier(THREADS);
 	public static float zeta(double s, int terms) {
 		if (s <= 1)
 			return Float.POSITIVE_INFINITY;
@@ -54,6 +59,7 @@ public class CriticalZeta {
 	}
 	
 	public static Complex eta(Complex s, int terms) {
+		/* Not implemented on the left halfplane */
 		if (s.re() <= 0)
 			return new Complex(Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY);
 		if (s.re() == 1 && s.im() == 1)
@@ -61,18 +67,62 @@ public class CriticalZeta {
 		Complex sum = new Complex(0,0);
 		Complex sum2 = sum;
 		int n = 1;
-		while (n <= terms) {
-			sum = sum.add(etaTerm(s,n));
-			n++;
+		/* Can be performed in parallel. Round up. */
+		Thread[] threads = new Thread[THREADS];
+		final int SUBTERMS = (THREADS + terms - 1)/THREADS;
+		final int TOTALTERMS = SUBTERMS*THREADS;
+		int ini = 0;
+		for (int t = 0; t < THREADS; t++) {
+			Thread thread = new Thread(new TermThread(t, s, ini + 1, ini + SUBTERMS));
+			threads[t] = thread;
+			thread.start();
+			ini += SUBTERMS;
 		}
-		// Average out sums with positive and negative trailing term.
-		sum2 = sum.add(etaTerm(s,n));
+		for (Thread thread : threads) {
+			try {
+				thread.join();
+			} catch (InterruptedException e) {
+				e.printStackTrace();
+			}
+		}
+		// Average out sums with positive and negative trailing term. Must account for rounding up.
+		for (Complex subsum : sums) {
+			sum = sum.add(subsum);
+		}
+		sum2 = sum.add(etaTerm(s, TOTALTERMS + 1));
 		return sum.add(sum2).div(2);
+	}
+	
+	private static class TermThread implements Runnable {
+		private int t, ini, fin;
+		private Complex s, sum;
+		public TermThread(int t, Complex s, int ini, int fin) {
+			this.t = t;
+			this.ini = ini;
+			this.fin = fin;
+			this.s = s;
+			this.sum = new Complex(0,0);
+		}
+	    public void run()
+	    {
+	        try {
+	        	// System.out.printf("^[%d]: %f, %d, %d\n", t, s.im(), ini, fin);
+	            for (int k = ini; k <= fin; k++) {
+	            	sum = sum.add(etaTerm(s,k));
+	            }
+	            sums[t] = sum;
+	            barrier.await();
+	            // System.out.printf("\t$[%d]: %f, %d, %d\n", t, s.im(), ini, fin);
+	        }
+	        catch (Exception e) {
+	            e.printStackTrace();
+	        }
+	    }
 	}
 	
 	public static Complex etaTerm(Complex s, int n) {
 		Complex term = new Complex((double) 1/n,0);
-		int sgn = (n % 2 != 0 ? 1 : -1);
+		int sgn = n % 2 != 0 ? 1 : -1;
 		term = term.raise(s);
 		term = term.mult(new Complex(sgn,0));
 		return term;
@@ -93,7 +143,7 @@ public class CriticalZeta {
 		Complex divisor = (new Complex(1,0).sub(new Complex(2,0).raise(t)));
 		return etaTerm(s,n).div(divisor);
 	}
-	
+	/*
 	public static void main(String[] args) {
 		boolean finish = false;
 		while(!finish) {
@@ -109,4 +159,5 @@ public class CriticalZeta {
 			key.close();
 		}
 	}
+	*/
 }
