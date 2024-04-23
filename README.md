@@ -1,13 +1,14 @@
 # Riemann Zeta tracer
 
-This is a basic Java Swing program which animates the path of the Riemann zeta function on the critical line.
-The trailing part of the path is colored red, while the leading part of the path is colored violet.
+This is currently basic **Java Swing** program which animates the path of the Riemann zeta function on the critical line. Unitl then, there aren't many visualizations of the zeta function at high heights, let alone entire livestreams of it.
 
-This is the program that runs for the **Operation: Hashling** livestream, where Discord starts assigning unique usernames to the remaining users who have not updated their usernames themselves.
+The trailing part of the path is colored red, while the leading part of the path is colored violet. Below is the the last 1000 parts of the zeta spiral before we reach one million.
 
-![hxFFFF](./images/Riemann0x10000.png)
+This is the program that runs for the [**Operation: Hashling**](https://discordrollout.nekos.sh/) [livestream](https://youtu.be/o-XUeCMx5s0?feature=shared), where Discord starts assigning unique usernames to the remaining users who have not updated their usernames themselves.
+
+![hx1M](./images/Riemann0xf4240.png)
 * **Highlight:** https://www.youtube.com/watch?v=6XrqDJFJR5k
-* **Livestream:** https://www.youtube.com/live/7Mk4GemMQ1M?feature=shared
+* **Livestream:** https://www.youtube.com/live/pTvvof-IZAc?feature=shared
 
 ## How to Run
 
@@ -55,7 +56,8 @@ Java Swing is now considered legacy. I will continue to add a couple more versio
 
 |Image                                 |Description
 |--------------------------------------|-----------
-|![h7021](./images/Riemann7021.png)   |Riemann zeta limaçon from the Lehmer pair and 16 unit after. The Lehmer arc is not visible at this scale, even at 4K.
+|![h7021](./images/Riemann7021.png)    |Riemann zeta limaçon from the Lehmer pair and 16 unit after. The Lehmer arc is not visible at this scale, even at 4K.
+|![h10000](./images/Riemann0x10000.png)  |Riemann zeta limaçon up to height 65536 (last 1024 units)
 
 ## Resources
 
