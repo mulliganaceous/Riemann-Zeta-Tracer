@@ -1,0 +1,9 @@
+/home/samaria/github/Riemann-Zeta-Tracer/v4.0/client/CMakeFiles/securesocketclient.dir
+/home/samaria/github/Riemann-Zeta-Tracer/v4.0/client/CMakeFiles/edit_cache.dir
+/home/samaria/github/Riemann-Zeta-Tracer/v4.0/client/CMakeFiles/rebuild_cache.dir
+/home/samaria/github/Riemann-Zeta-Tracer/v4.0/client/CMakeFiles/list_install_components.dir
+/home/samaria/github/Riemann-Zeta-Tracer/v4.0/client/CMakeFiles/install.dir
+/home/samaria/github/Riemann-Zeta-Tracer/v4.0/client/CMakeFiles/install/local.dir
+/home/samaria/github/Riemann-Zeta-Tracer/v4.0/client/CMakeFiles/install/strip.dir
+/home/samaria/github/Riemann-Zeta-Tracer/v4.0/client/CMakeFiles/securesocketclient_autogen_timestamp_deps.dir
+/home/samaria/github/Riemann-Zeta-Tracer/v4.0/client/CMakeFiles/securesocketclient_autogen.dir

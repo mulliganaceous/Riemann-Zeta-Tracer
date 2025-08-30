@@ -1,0 +1,6 @@
+<RCC>
+  <qresource prefix="/">
+    <file alias="encrypted.png">/home/samaria/Qt/Examples/Qt-6.9.2/network/securesocketclient/encrypted.png</file>
+  </qresource>
+</RCC>
+

@@ -1,0 +1,2 @@
+set(__QT_DEPLOY_TARGET_securesocketclient_FILE /home/samaria/github/Riemann-Zeta-Tracer/v4.0/client/securesocketclient)
+set(__QT_DEPLOY_TARGET_securesocketclient_TYPE EXECUTABLE)
