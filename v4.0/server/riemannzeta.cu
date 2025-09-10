@@ -1,7 +1,11 @@
+// Main
+#define __MAIN__
+
 // C++ standard
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include <iostream>
 #define __STDC_FORMAT_MACROS
 
@@ -19,19 +23,6 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/freetype.hpp>
 
-// Unix networking
-#include <unistd.h>
-#include <errno.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <netdb.h>
-#include <arpa/inet.h>
-#include <sys/wait.h>
-#include <signal.h>
-#define PORT "8081"
-#define BACKLOG 16
-
 // Helpers
 #include "helper.cu"
 #include <opencv2/core/mat.hpp>
@@ -40,7 +31,7 @@
 #define WIDTH 1920
 #define HEIGHT 1024
 #define ENTRIES (WIDTH*HEIGHT)
-#define DEPTH 1024
+#define DEPTH 16
 #define CASCADE 1024
 #define TERMS (DEPTH*CASCADE)
 #define BATCHES 1000
@@ -117,18 +108,18 @@ __global__ void zeta(cuDoubleComplex *d_plot, cuDoubleComplex *d_input)
 /* TODO
  * Compute the Riemann Zeta function using the Dirichlet eta function, keeping terms separate.
  */
-__global__ void zetaterms(cuDoubleComplex *d_plot, double x_ini, double y_ini, double x_res, double y_res)
+__global__ void zetaterms(cuDoubleComplex *d_plot, cuDoubleComplex *d_input)
 {
     // Obtain pixel subcoordinates
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int idy = blockIdx.y * blockDim.y + threadIdx.y;
-    int idz = blockIdx.z * blockDim.z + threadIdx.z;
+    int idx = blockIdx.x*blockDim.x + threadIdx.x;
+    int idy = blockIdx.y*blockDim.y + threadIdx.y;
+    int idz = blockIdx.z*blockDim.z + threadIdx.z;
     int width = gridDim.x * blockDim.x;
     int height = gridDim.y * blockDim.y;
     int depth = gridDim.z * blockDim.z;
 
     // Temporary variables
-    cuDoubleComplex z = make_cuDoubleComplex(x_ini + idx * x_res, y_ini + idy * y_res);
+    cuDoubleComplex z = d_input[idx*width + idy];
     cuDoubleComplex sum = make_cuDoubleComplex(0.0, 0.0);
     cuDoubleComplex temp;
     double smagnitude, angle;
@@ -138,64 +129,79 @@ __global__ void zetaterms(cuDoubleComplex *d_plot, double x_ini, double y_ini, d
         // Determine n
         int n = k + idz*CASCADE;
         // Must code the exponentiation manually
-        smagnitude = (-1 + ((n & 1) << 1)) / exp(cuCreal(z) * log((double)n));
-        angle = cuCimag(z) * log((double)n);
-        temp = make_cuDoubleComplex(smagnitude * cos(angle), -smagnitude * sin(angle));
-        sum = cuCadd(sum, temp);
+        // smagnitude = (-1 + ((n & 1) << 1)) / exp(cuCreal(z) * log((double)n));
+        // angle = cuCimag(z) * log((double)n);
+        // temp = make_cuDoubleComplex(smagnitude * cos(angle), -smagnitude * sin(angle));
+        // sum = cuCadd(sum, temp);
+        sum = make_cuDoubleComplex(n, -n);
     }
 
     // Average out, only applicable for the last block and thread by depth
     if (blockIdx.z == gridDim.z - 1 && threadIdx.z == blockDim.z - 1) {
         int n = 1 + depth*CASCADE;
-        smagnitude = (-1 + ((n & 1) << 1)) / exp(cuCreal(z) * log((double)n));
-        angle = cuCimag(z) * log((double)n);
-        temp = make_cuDoubleComplex(smagnitude * cos(angle) / 2, -smagnitude * sin(angle) / 2);
-        sum = cuCadd(sum, temp);
+        // smagnitude = (-1 + ((n & 1) << 1)) / exp(cuCreal(z) * log((double)n));
+        // angle = cuCimag(z) * log((double)n);
+        // temp = make_cuDoubleComplex(smagnitude * cos(angle) / 2, -smagnitude * sin(angle) / 2);
+        // sum = cuCadd(sum, temp);
+        sum = make_cuDoubleComplex(n, -n);
     }
 
     // Must code the coefficient manually
-    temp = make_cuDoubleComplex(1 - cuCreal(z), -cuCimag(z)); // temp is now the complement of z
-    smagnitude = exp(cuCreal(temp) * log(2.0));
-    angle = cuCimag(temp) * log(2.0);
-    temp = make_cuDoubleComplex(1 - smagnitude * cos(angle), -smagnitude * sin(angle));
-    sum = cuCdiv(sum, temp);
+    // temp = make_cuDoubleComplex(1 - cuCreal(z), -cuCimag(z)); // temp is now the complement of z
+    // smagnitude = exp(cuCreal(temp) * log(2.0));
+    // angle = cuCimag(temp) * log(2.0);
+    // temp = make_cuDoubleComplex(1 - smagnitude * cos(angle), -smagnitude * sin(angle));
+    // sum = cuCdiv(sum, temp);
 
     // Store the result, with individual terms represented as planes, and vertical lines as rows.
-    __syncthreads();
-    d_plot[idz*height*width + idy + idx*height] = sum;
+    d_plot[idx*height*depth + idy*depth + idz] = sum;
+}
+
+/* TODO
+ */
+__device__ void warpReduce(volatile double *sdata, unsigned tid) {
+    sdata[tid] = sdata[tid] + sdata[tid + 32]; 
+    sdata[tid] = sdata[tid] + sdata[tid + 16];
+    sdata[tid] = sdata[tid] + sdata[tid + 8];
+    sdata[tid] = sdata[tid] + sdata[tid + 4];
+    sdata[tid] = sdata[tid] + sdata[tid + 2];
 }
 
 /* TODO
  * Perform warp reduction.
  */
-__device__ cuDoubleComplex warpReduceSum(cuDoubleComplex val) {
-    return val;
-}
+__device__ cuDoubleComplex warpReduceSum(cuDoubleComplex *g_idata, cuDoubleComplex *g_odata) {
+    // Shared data is componentwise
+    extern __shared__ double sdata[];
 
-/* TODO
- * Perform parallel reduction to merge the depth terms. They never apply to contiguous ranges of memory,
- * as the z-coordinate (term number) is the most major.
- */
-__global__ void depthmerge(cuDoubleComplex *d_plot) {
-    // Obtain pixel subcoordinates
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    int idy = blockIdx.y * blockDim.y + threadIdx.y;
-    int idz = blockIdx.z * blockDim.z + threadIdx.z;
-    int width = gridDim.x * blockDim.x;
-    int height = gridDim.y * blockDim.y;
-    int depth = gridDim.z * blockDim.z;
+    // Load one element from global to shared. The sdata contains even-odd pairs.
+    unsigned tid = threadIdx.x;
+    unsigned idx = (blockIdx.x*blockDim.x << 1) + threadIdx.x;
+    sdata[tid] = g_idata[idx].x + g_idata[idx + blockDim.x].x;
+    sdata[tid + 1] = g_idata[idx].x + g_idata[idx + blockDim.x].x;
+    __syncthreads();
 
-    // Temporary variables
-    cuDoubleComplex sum = make_cuDoubleComplex(0.0, 0.0);
-
-    // Straightforward summation
-    for (int k = 0; k < depth; k++)
-    {
-        sum = cuCadd(sum, d_plot[idx*height*depth + idy*depth + k]);
+    if (blockDim.x >= 512 && tid < 256){
+        sdata[tid] += sdata[tid + 256];
+        __syncthreads();
+    }
+    if (blockDim.x >= 256 && tid < 128){
+        sdata[tid] += sdata[tid + 128];
+        __syncthreads();
+    }
+    if (blockDim.x >= 128 && tid < 64){
+        sdata[tid] += sdata[tid + 64];
+        __syncthreads();
+    }
+    if (tid < 32) {
+        warpReduce(sdata, tid);
     }
 
-    // Store the result
-    d_plot[idy * width + idx] = sum;
+    // Write result from shared to global
+    if (tid == 0) {
+        g_odata[blockIdx.x].x = sdata[0];
+        g_odata[blockIdx.x].y = sdata[0];
+    }
 }
 
 void cudaZeta(cuDoubleComplex *h_plot, double x_ini, double y_ini, double x_res, double y_res, cuDoubleComplex *h_input)
@@ -228,151 +234,28 @@ void cudaZeta(cuDoubleComplex *h_plot, double x_ini, double y_ini, double x_res,
  * Then merge the terms by depth.
  * The result is an array which applicable values are spaced DEPTH entries apart.
  */
-void cudaZetaDepth(cuDoubleComplex *h_plot, double x_ini, double y_ini, double x_res, double y_res)
+void cudaZetaDepth(cuDoubleComplex *h_plot, double x_ini, double y_ini, double x_res, double y_res, cuDoubleComplex *h_input)
 {
+    clock_t t0;
+
     // Host and device-side memory allocation
-    cuDoubleComplex *d_plot;
-    cudaError_t status = cudaHostGetDevicePointer(&d_plot, h_plot, 0);
-    getStatus(status, "Failed to allocate cudaMemcpy! ");
+    cuDoubleComplex *d_plot, *d_input;
+    getStatus(cudaHostGetDevicePointer(&d_plot, h_plot, 0), "(plot cube) Failed to allocate cudaMemcpy! ");
+    getStatus(cudaHostGetDevicePointer(&d_input, h_input, 0), "(input cube) Failed to allocate cudaMemcpy! ");
     // Perform the term by term computation
-    zetaterms<<<dim3(WIDTH, HEIGHT, DEPTH), CASCADE>>>(d_plot, x_ini, y_ini, x_res, y_res);
+    t0 = clock();
+    std::cout << "Generate plot starting from height " << y_ini << std::endl;
+    cudaDeviceSynchronize();
+    id<<<dim3(WIDTH, 1), dim3(1, HEIGHT)>>>(d_input, x_ini, y_ini, x_res, y_res);
+    cudaDeviceSynchronize();
+    zetaterms<<<dim3(WIDTH, HEIGHT, 1), DEPTH>>>(d_plot, d_input);
     cudaDeviceSynchronize();
     // Merge the terms by depth (contiguous range of 1024 blocks)
-    depthmerge<<<dim3(WIDTH, HEIGHT, DEPTH), 256>>>(d_plot);
+
+    std::cout << "Generated plot starting from height " << y_ini << " in time " << (float)(clock() - t0)/CLOCKS_PER_SEC << "s." << std::endl;
     // Free memory
     cudaFree(d_plot);
-}
-
-// Server code adapted from Beej's Guide to Network Programming
-
-void sigchld_handler(int s)
-{
-    int saved_errno = errno;
-    while (waitpid(-1, NULL, WNOHANG) > 0)
-        ;
-    errno = saved_errno;
-}
-
-void *get_in_addr(struct sockaddr *sa)
-{
-    switch (sa->sa_family)
-    {
-    case AF_INET:
-        return &(((struct sockaddr_in *)sa)->sin_addr);
-    case AF_INET6:
-        return &(((struct sockaddr_in6 *)sa)->sin6_addr);
-    default:
-        throw std::runtime_error("Unknown address family");
-    }
-}
-
-int server() {
-    int sockfd, new_fd;
-    struct addrinfo hints, *servinfo, *p;
-    struct sockaddr_storage their_addr;
-    socklen_t sin_size;
-    struct sigaction sa;
-    int yes = 1;
-    char s[INET6_ADDRSTRLEN];
-    int rv;
-
-    memset(&hints, 0, sizeof hints);
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags = AI_PASSIVE;
-
-    if ((rv = getaddrinfo(NULL, PORT, &hints, &servinfo)) != 0)
-    {
-        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-        return EXIT_FAILURE;
-    }
-
-    for (p = servinfo; p != NULL; p = p->ai_next)
-    {
-        if ((sockfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1)
-        {
-            perror("server: socket");
-            continue;
-        }
-        if (setsockopt(sockfd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1)
-        {
-            perror("setsockopt");
-            return EXIT_FAILURE;
-        }
-        if (bind(sockfd, p->ai_addr, p->ai_addrlen) == -1)
-        {
-            close(sockfd);
-            perror("server: bind");
-            continue;
-        }
-        break;
-    }
-
-    freeaddrinfo(servinfo);
-    if (p == NULL)
-    {
-        fprintf(stderr, "server: failed to bind\n");
-        return EXIT_FAILURE;
-    }
-    if (listen(sockfd, BACKLOG) == -1)
-    {
-        perror("listen");
-        return EXIT_FAILURE;
-    }
-    sa.sa_handler = sigchld_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    if (sigaction(SIGCHLD, &sa, NULL) == -1)
-    {
-        perror("sigaction");
-        return EXIT_FAILURE;
-    }
-
-    printf("server: waiting for connections...\n");
-    while (1)
-    {
-        sin_size = sizeof their_addr;
-        new_fd = accept(sockfd, (struct sockaddr *)&their_addr, &sin_size);
-        if (new_fd == -1)
-        {
-            perror("accept");
-            continue;
-        }
-        printf("server: the new fd is %d\n", new_fd);
-        inet_ntop(their_addr.ss_family, get_in_addr((struct sockaddr *)&their_addr), s, sizeof s);
-        printf("server: got connection from %s\n", s);
-        // Compute the Riemann zeta function
-        while (1)
-        {
-            close(sockfd);
-            // Allocate host memory for the plot
-            cuDoubleComplex *h_plot;
-            getStatus(cudaMallocHost(&h_plot, MEMSIZE/DEPTH), "Failed to allocate cudaMallocHost! ");
-            cuDoubleComplex *h_input;
-            getStatus(cudaMallocHost(&h_input, MEMSIZE/DEPTH), "Failed to allocate cudaMallocHost! ");
-            
-            cudaZeta(h_plot, 0, 0, 16, 16, h_input);
-            for (int k = 0; k < BATCHES; k++)
-            {
-                long long bytes_to_send = sizeof(cuDoubleComplex) * WIDTH * HEIGHT;
-                long long interval = bytes_to_send / BATCHES;
-                printf("Preparing to send %lld bytes\n", bytes_to_send);
-                ssize_t sent_bytes = send(new_fd, h_plot + (k * interval)/sizeof(cuDoubleComplex), interval, 0);
-                sleep(0.1);
-                if (sent_bytes == -1)
-                {
-                    printf("neg one\n");
-                }
-                else
-                {
-                    printf("Sent %ld bytes\n", sent_bytes);
-                }
-                sleep(1);
-            }
-        }
-        close(new_fd);
-    }
-    return EXIT_SUCCESS;
+    cudaFree(d_input);
 }
 
 __global__ void generate_phase_plot(unsigned char *d_image, cuDoubleComplex *d_plot, cuDoubleComplex *d_input, int unitsquare) {
@@ -380,212 +263,215 @@ __global__ void generate_phase_plot(unsigned char *d_image, cuDoubleComplex *d_p
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int idy = blockIdx.y * blockDim.y + threadIdx.y;
     int width = gridDim.y * blockDim.y;
+    
+    // Input and output
+    double2 z = d_input[idx*HEIGHT + idy];
+    double2 zeta = d_plot[idx*HEIGHT + idy];
+    double magnitude = cuCabs(zeta);
+    double angle = atan2(cuCimag(zeta), cuCreal(zeta));
+    double lightness = magnitude;
+    double csaturation = 0.36;
 
-            
-            double2 z = d_input[idx*HEIGHT + idy];
-            double2 zeta = d_plot[idx*HEIGHT + idy];
-            double magnitude = cuCabs(zeta);
-            double angle = atan2(cuCimag(zeta), cuCreal(zeta));
-            double lightness = magnitude;
-            double csaturation = 0.36;
+    // Cross and conversion
+    if (angle < 0) {
+        angle += 2*M_PI;
+    }
+    double slope = cuCreal(zeta)/cuCimag(zeta);
+    double islope = cuCimag(zeta)/cuCreal(zeta);
+    unsigned char cross = ((abs(cuCreal(zeta)) < 0.0625) || (abs(slope) < 0.015625))
+                        + ((abs(cuCimag(zeta)) < 0.0625) || (abs(islope) < 0.015625));
 
-            if (angle < 0) {
-                angle += 2*M_PI;
-            }
-            double slope = cuCreal(zeta)/cuCimag(zeta);
-            double islope = cuCimag(zeta)/cuCreal(zeta);
-            unsigned char cross = ((abs(cuCreal(zeta)) < 0.0625) || (abs(slope) < 0.015625))
-                                + ((abs(cuCimag(zeta)) < 0.0625) || (abs(islope) < 0.015625)) ;
-            // Output gridlines
-            switch (cross) {
-                case 1:
-                    csaturation = 0.09;
-                    break;
-                case 2:
-                    csaturation = 0;
-                    break;
-            }
-            // Checkerboarding
-            if (magnitude < 32 && (((((int)(floor(zeta.x))) & 1) + (((int)(floor(zeta.y))) & 1)) & 1)) {
-                csaturation = cross ? 0.25 : csaturation * 64./36.;
-            }
-            // Magnitude
-            if (lightness > 65536) {
-                lightness -= 24576; // Triangulous2
-            }                
-            else if (lightness > 32768) {
-                lightness -= 12288; // Triangulous
-            }                
-            else if (lightness > 16384) {
-                lightness -= 6144; // Volleo
-            }                
-            else if (lightness > 8192) {
-                lightness -= 3072; // Whalend
-            }                
-            else if (lightness > 4096) {
-                lightness -= 1536; // Terrence
-            }
-            else if (lightness > 2048) {
-                lightness -= 768; // Triferatu
-            }
-            else if (lightness > 512) {
-                lightness -= 384; // Triad
-            }
-            else if (lightness > 256) {
-                lightness -= 192; // Threejay
-            }
-            else if (lightness > 128) {
-                lightness -= 96; // 32 to 160
-            }
-            else if (lightness > 64) {
-                lightness -= 48; // 16 to 80
-            }
-            else if (lightness > 32) {
-                lightness -= 28; // 4 to 36
-            }
-            else if (lightness > 24) {
-                lightness -= 21; // 3 to 11
-            }
-            else if (lightness > 16) {
-                lightness -= 14; // 2 to to 10
-            }
-            else if (lightness > 8) {
-                lightness -= 7.5 ; // 8/16 to 8.5
-            }
-            else if (lightness > 7) {
-                lightness -= 6.5625; // 7/16
-            }
-            else if (lightness > 6) {
-                lightness -= 5.625; // 6/16
-            }
-            else if (lightness > 5) {
-                lightness -= 4.6875; // 5/16
-            }
-            else if (lightness > 4) {
-                lightness -= 3.75; // 4/16
-            }
-            else if (lightness > 3) {
-                lightness -= 2.8125; // 3/16
-            }
-            else if (lightness > 2) {
-                lightness -= 1.875; // 2/16
-            }
-            else if (lightness > 1) {
-                lightness -= 0.9375; // 1/16
-            }
+    // Output gridlines
+    switch (cross) {
+        case 1:
+            csaturation = 0.09;
+            break;
+        case 2:
+            csaturation = 0;
+            break;
+    }
+    // Checkerboarding
+    if (magnitude < 32 && (((((int)(floor(zeta.x))) & 1) + (((int)(floor(zeta.y))) & 1)) & 1)) {
+        csaturation = cross ? 0.25 : csaturation * 64./36.;
+    }
+    // Magnitude
+    if (lightness > 65536) {
+        lightness -= 24576; // Triangulous2
+    }                
+    else if (lightness > 32768) {
+        lightness -= 12288; // Triangulous
+    }                
+    else if (lightness > 16384) {
+        lightness -= 6144; // Volleo
+    }                
+    else if (lightness > 8192) {
+        lightness -= 3072; // Whalend
+    }                
+    else if (lightness > 4096) {
+        lightness -= 1536; // Terrence
+    }
+    else if (lightness > 2048) {
+        lightness -= 768; // Triferatu
+    }
+    else if (lightness > 512) {
+        lightness -= 384; // Triad
+    }
+    else if (lightness > 256) {
+        lightness -= 192; // Threejay
+    }
+    else if (lightness > 128) {
+        lightness -= 96; // 32 to 160
+    }
+    else if (lightness > 64) {
+        lightness -= 48; // 16 to 80
+    }
+    else if (lightness > 32) {
+        lightness -= 28; // 4 to 36
+    }
+    else if (lightness > 24) {
+        lightness -= 21; // 3 to 11
+    }
+    else if (lightness > 16) {
+        lightness -= 14; // 2 to to 10
+    }
+    else if (lightness > 8) {
+        lightness -= 7.5 ; // 8/16 to 8.5
+    }
+    else if (lightness > 7) {
+        lightness -= 6.5625; // 7/16
+    }
+    else if (lightness > 6) {
+        lightness -= 5.625; // 6/16
+    }
+    else if (lightness > 5) {
+        lightness -= 4.6875; // 5/16
+    }
+    else if (lightness > 4) {
+        lightness -= 3.75; // 4/16
+    }
+    else if (lightness > 3) {
+        lightness -= 2.8125; // 3/16
+    }
+    else if (lightness > 2) {
+        lightness -= 1.875; // 2/16
+    }
+    else if (lightness > 1) {
+        lightness -= 0.9375; // 1/16
+    }
 
-            // Output
-            lightness = 0.96/(1 + 1.0/sqrtf(lightness)); // sigmoid
-            // Unit circle
-            if (magnitude < 1) {
-                int sector = ((int)(angle*6/M_PI)) % 3;
-                switch (sector) {
-                    case 2:
-                        csaturation = 0.16;
-                        break;
-                    case 1:
-                        csaturation = 0.09;
-                        break;
-                    case 0:
-                        csaturation = 0;
-                        break;
-                    default:
-                        csaturation = 1;
-                        break;
-                }
-            } // Antidiagonal
-            else if (cross) {
-                lightness /= 4;
-                lightness += 0.375;
-            }
-            else {
-                if (slope < 0) {
-                    csaturation = 1 - (1 - csaturation) / 2;
-                }
-                else {
-                    
-                }
-            }
-
-            // Input
-            if ((int)(cuCreal(z)) - cuCreal(z) == 0 || (int)(cuCimag(z)) - cuCimag(z) == 0) {
-                lightness = lightness*lightness*lightness/sqrtf(2);
+    // Output
+    lightness = 0.96/(1 + 1.0/sqrtf(lightness)); // sigmoid
+    // Unit circle
+    if (magnitude < 1) {
+        int sector = ((int)(angle*6/M_PI)) % 3;
+        switch (sector) {
+            case 2:
+                csaturation = 0.16;
+                break;
+            case 1:
+                csaturation = 0.09;
+                break;
+            case 0:
+                csaturation = 0;
+                break;
+            default:
                 csaturation = 1;
-            }
+                break;
+        }
+    } // Antidiagonal
+    else if (cross) {
+        lightness /= 4;
+        lightness += 0.375;
+    }
+    else {
+        if (slope < 0) {
+            csaturation = 1 - (1 - csaturation) / 2;
+        }
+        else {
+            
+        }
+    }
 
-            // Color (from NVDA)
-            idx = 3*(idx*HEIGHT + idy);
-            float nNormalizedH = angle/2/M_PI;
-            float nNormalizedL = lightness;
-            float nNormalizedS = 1 - csaturation;
-            float nM1, nM2, nR, nG, nB;
-            float nh = 0.0f;
-            if (nNormalizedL <= 0.5F)
-                nM2 = nNormalizedL * (1.0F + nNormalizedS);
-            else
-                nM2 = nNormalizedL + nNormalizedS - nNormalizedL * nNormalizedS;
-            nM1 = 2.0F * nNormalizedL - nM2;
-            if (nNormalizedS == 0.0F)
-                nR = nG = nB = nNormalizedL;
-            else
-            {
-                nh = nNormalizedH + 0.3333F;
-                if (nh > 1.0F)
-                    nh -= 1.0F;
-            }
-            float nMDiff = nM2 - nM1;
-            if (0.6667F < nh)
-                nR = nM1;
-            else
-            {    
-                if (nh < 0.1667F)
-                    nR = (nM1 + nMDiff * nh * 6.0F); // / 0.1667F
-                else if (nh < 0.5F)
-                    nR = nM2;
-                else
-                    nR = nM1 + nMDiff * ( 0.6667F - nh ) * 6.0F; // / 0.1667F
-            }
-            // Green   
-            nh = nNormalizedH;
-            if (0.6667F < nh)
-                nG = nM1;
-            else
-            {
-                if (nh < 0.1667F)
-                    nG = (nM1 + nMDiff * nh * 6.0F); // / 0.1667F
-                else if (nh < 0.5F)
-                    nG = nM2;
-                else
-                    nG = nM1 + nMDiff * (0.6667F - nh ) * 6.0F; // / 0.1667F
-            }
-            // Blue    
-            nh = nNormalizedH - 0.3333F;
-            if (nh < 0.0F)
-                nh += 1.0F;
-            if (0.6667F < nh)
-                nB = nM1;
-            else
-            {
-                if (nh < 0.1667F)
-                    nB = (nM1 + nMDiff * nh * 6.0F); // / 0.1667F
-                else if (nh < 0.5F)
-                    nB = nM2;
-                else
-                    nB = nM1 + nMDiff * (0.6667F - nh ) * 6.0F; // / 0.1667F
-            }        
-            d_image[idx    ] = 255*(nB);
-            d_image[idx + 1] = 255*(nG);
-            d_image[idx + 2] = 255*(nR);
+    // Input
+    if ((int)(cuCreal(z)) - cuCreal(z) == 0 || (int)(cuCimag(z)) - cuCimag(z) == 0) {
+        lightness = lightness*lightness*lightness/sqrtf(2);
+        csaturation = 1;
+    }
+
+    // Color (from NVDA)
+    idx = 3*(idx*HEIGHT + idy);
+    float nNormalizedH = angle/2/M_PI;
+    float nNormalizedL = lightness;
+    float nNormalizedS = 1 - csaturation;
+    float nM1, nM2, nR, nG, nB;
+    float nh = 0.0f;
+    if (nNormalizedL <= 0.5F)
+        nM2 = nNormalizedL * (1.0F + nNormalizedS);
+    else
+        nM2 = nNormalizedL + nNormalizedS - nNormalizedL * nNormalizedS;
+    nM1 = 2.0F * nNormalizedL - nM2;
+    if (nNormalizedS == 0.0F)
+        nR = nG = nB = nNormalizedL;
+    else
+    {
+        nh = nNormalizedH + 0.3333F;
+        if (nh > 1.0F)
+            nh -= 1.0F;
+    }
+    float nMDiff = nM2 - nM1;
+    if (0.6667F < nh)
+        nR = nM1;
+    else
+    {    
+        if (nh < 0.1667F)
+            nR = (nM1 + nMDiff * nh * 6.0F); // / 0.1667F
+        else if (nh < 0.5F)
+            nR = nM2;
+        else
+            nR = nM1 + nMDiff * ( 0.6667F - nh ) * 6.0F; // / 0.1667F
+    }
+    // Green   
+    nh = nNormalizedH;
+    if (0.6667F < nh)
+        nG = nM1;
+    else
+    {
+        if (nh < 0.1667F)
+            nG = (nM1 + nMDiff * nh * 6.0F); // / 0.1667F
+        else if (nh < 0.5F)
+            nG = nM2;
+        else
+            nG = nM1 + nMDiff * (0.6667F - nh ) * 6.0F; // / 0.1667F
+    }
+    // Blue    
+    nh = nNormalizedH - 0.3333F;
+    if (nh < 0.0F)
+        nh += 1.0F;
+    if (0.6667F < nh)
+        nB = nM1;
+    else
+    {
+        if (nh < 0.1667F)
+            nB = (nM1 + nMDiff * nh * 6.0F); // / 0.1667F
+        else if (nh < 0.5F)
+            nB = nM2;
+        else
+            nB = nM1 + nMDiff * (0.6667F - nh ) * 6.0F; // / 0.1667F
+    }        
+    d_image[idx    ] = 255*(nB);
+    d_image[idx + 1] = 255*(nG);
+    d_image[idx + 2] = 255*(nR);
 }
 
 void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int increment = 4) {
     interval += initial;
+    std::cout << "Generating sequences of images starting at height " << initial << ", resolution " << unitsquare << std::endl;
     for (int ini = initial; ini <= interval; ini += increment) {
         // Allocate host memory for the plot
         cuDoubleComplex *h_plot;
-        getStatus(cudaMallocHost(&h_plot, MEMSIZE/DEPTH), "Failed to allocate cudaMallocHost! ");
+        getStatus(cudaMallocHost(&h_plot, ENTRIES), "Failed to allocate cudaMallocHost! ");
         cuDoubleComplex *h_input;
-        getStatus(cudaMallocHost(&h_input, MEMSIZE/DEPTH), "Failed to allocate cudaMallocHost! ");
+        getStatus(cudaMallocHost(&h_input, ENTRIES), "Failed to allocate cudaMallocHost! ");
 
         // Plot
         double x_ini = -3.25;
@@ -735,9 +621,33 @@ void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int
             std::cout << " S\t" << hexstr << std::endl;
             
         }
-        
-        cudaFree(h_plot);
+        // Free memory
+        cudaFreeHost(h_plot);
+        cudaFreeHost(h_input);
     }
+}
+
+void generatedepthplot(int initial = 0, int interval = 256, int unitsquare = 256, int increment = 4) {
+    interval += initial;
+    std::cout << "Generating sequences of images starting at height " << initial << ", resolution " << unitsquare << std::endl;
+    for (int ini = initial; ini <= interval; ini += increment) {
+        // Allocate host memory for the plot
+        cuDoubleComplex *h_plot;
+        getStatus(cudaMallocHost(&h_plot, MEMSIZE), "(h_plot) Failed to allocate cudaMallocHost! ");
+        cuDoubleComplex *h_input;
+        getStatus(cudaMallocHost(&h_input, ENTRIES), "(h_input) Failed to allocate cudaMallocHost! ");
+
+        // Plot
+        double x_ini = -3.25;
+        double y_ini = -2 + ini;
+        // cudaZetaDepth(h_plot, x_ini, y_ini, unitsquare, unitsquare, h_input);
+
+        // Free memory
+        cudaFreeHost(h_plot);
+        cudaFreeHost(h_input);
+
+        sleep(5);
+    } 
 }
 
 int main()
@@ -764,10 +674,7 @@ int main()
     }
 
     // Generate plot
-    generateplot(7000, 1024, 256, 16);
-
-    // Construct server
-    server();
+    generatedepthplot(0, 1024, 256, 16);
 
     return EXIT_SUCCESS;
 }
