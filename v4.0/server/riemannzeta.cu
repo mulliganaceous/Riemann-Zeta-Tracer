@@ -31,11 +31,14 @@
 #define WIDTH 1920
 #define HEIGHT 1024
 #define ENTRIES (WIDTH*HEIGHT)
-#define DEPTH 16
+#define DEPTHBLOCKBITS 4
+#define DEPTHTHREADBITS 3
+#define DEPTH (1 << (DEPTHBLOCKBITS + DEPTHTHREADBITS))
 #define CASCADE 1024
 #define TERMS (DEPTH*CASCADE)
 #define BATCHES 1000
 #define MEMSIZE (sizeof(cuDoubleComplex) * WIDTH * HEIGHT * DEPTH)
+#define OUTPUTMEMSIZE (sizeof(cuDoubleComplex) * WIDTH * HEIGHT)
 #define IMGMEMSIZE (sizeof(unsigned char) * WIDTH * HEIGHT)
 
 // CUDA Code
@@ -110,13 +113,13 @@ __global__ void zeta(cuDoubleComplex *d_plot, cuDoubleComplex *d_input)
  */
 __global__ void zetaterms(cuDoubleComplex *d_plot, cuDoubleComplex *d_input)
 {
-    // Obtain pixel subcoordinates
-    int idx = blockIdx.x*blockDim.x + threadIdx.x;
-    int idy = blockIdx.y*blockDim.y + threadIdx.y;
-    int idz = blockIdx.z*blockDim.z + threadIdx.z;
-    int width = gridDim.x * blockDim.x;
-    int height = gridDim.y * blockDim.y;
-    int depth = gridDim.z * blockDim.z;
+    // Obtain pixel subcoordinates; all threads go to the z coordinate
+    int idx = blockIdx.x;
+    int idy = blockIdx.y;
+    int idz = blockIdx.z*blockDim.x + threadIdx.x;
+    int width = gridDim.x;
+    int height = gridDim.y;
+    int depth = gridDim.z * blockDim.x;
 
     // Temporary variables
     cuDoubleComplex z = d_input[idx*width + idy];
@@ -133,17 +136,17 @@ __global__ void zetaterms(cuDoubleComplex *d_plot, cuDoubleComplex *d_input)
         // angle = cuCimag(z) * log((double)n);
         // temp = make_cuDoubleComplex(smagnitude * cos(angle), -smagnitude * sin(angle));
         // sum = cuCadd(sum, temp);
-        sum = make_cuDoubleComplex(n, -n);
+        sum = make_cuDoubleComplex(idx, n);
     }
 
     // Average out, only applicable for the last block and thread by depth
-    if (blockIdx.z == gridDim.z - 1 && threadIdx.z == blockDim.z - 1) {
+    if (blockIdx.z == gridDim.z - 1 && threadIdx.x == blockDim.x - 1) {
         int n = 1 + depth*CASCADE;
         // smagnitude = (-1 + ((n & 1) << 1)) / exp(cuCreal(z) * log((double)n));
         // angle = cuCimag(z) * log((double)n);
         // temp = make_cuDoubleComplex(smagnitude * cos(angle) / 2, -smagnitude * sin(angle) / 2);
         // sum = cuCadd(sum, temp);
-        sum = make_cuDoubleComplex(n, -n);
+        sum = make_cuDoubleComplex(idx, n);
     }
 
     // Must code the coefficient manually
@@ -175,21 +178,21 @@ __device__ cuDoubleComplex warpReduceSum(cuDoubleComplex *g_idata, cuDoubleCompl
     extern __shared__ double sdata[];
 
     // Load one element from global to shared. The sdata contains even-odd pairs.
-    unsigned tid = threadIdx.x;
-    unsigned idx = (blockIdx.x*blockDim.x << 1) + threadIdx.x;
-    sdata[tid] = g_idata[idx].x + g_idata[idx + blockDim.x].x;
-    sdata[tid + 1] = g_idata[idx].x + g_idata[idx + blockDim.x].x;
+    unsigned tid = threadIdx.z;
+    unsigned idx = (blockIdx.z*blockDim.z << 1) + threadIdx.z;
+    sdata[tid] = g_idata[idx].x + g_idata[idx + blockDim.z].y;
+    sdata[tid + 1] = g_idata[idx].x + g_idata[idx + blockDim.z].y;
     __syncthreads();
 
-    if (blockDim.x >= 512 && tid < 256){
+    if (blockDim.z >= 512 && tid < 256){
         sdata[tid] += sdata[tid + 256];
         __syncthreads();
     }
-    if (blockDim.x >= 256 && tid < 128){
+    if (blockDim.z >= 256 && tid < 128){
         sdata[tid] += sdata[tid + 128];
         __syncthreads();
     }
-    if (blockDim.x >= 128 && tid < 64){
+    if (blockDim.z >= 128 && tid < 64){
         sdata[tid] += sdata[tid + 64];
         __syncthreads();
     }
@@ -199,10 +202,12 @@ __device__ cuDoubleComplex warpReduceSum(cuDoubleComplex *g_idata, cuDoubleCompl
 
     // Write result from shared to global
     if (tid == 0) {
-        g_odata[blockIdx.x].x = sdata[0];
-        g_odata[blockIdx.x].y = sdata[0];
+        g_odata[blockIdx.z].x = sdata[0];
+        g_odata[blockIdx.z].y = sdata[0];
     }
 }
+
+/* Host side code */
 
 void cudaZeta(cuDoubleComplex *h_plot, double x_ini, double y_ini, double x_res, double y_res, cuDoubleComplex *h_input)
 {
@@ -213,9 +218,9 @@ void cudaZeta(cuDoubleComplex *h_plot, double x_ini, double y_ini, double x_res,
     cuDoubleComplex *d_plot, *d_input;
     cudaError_t status;
     status = cudaHostGetDevicePointer(&d_plot, h_plot, 0);
-    getStatus(status, "Failed to allocate cudaMemcpy! ");
+    getStatus(status, "(d_plot) Failed to allocate cudaMemcpy! ");
     status = cudaHostGetDevicePointer(&d_input, h_input, 0);
-    getStatus(status, "Failed to allocate cudaMemcpy! ");
+    getStatus(status, "(d_plot) Failed to allocate cudaMemcpy! ");
     // Perform the zeta computation
     cudaDeviceSynchronize();
     id<<<dim3(WIDTH, 1), dim3(1, HEIGHT)>>>(d_input, x_ini, y_ini, x_res, y_res);
@@ -248,7 +253,7 @@ void cudaZetaDepth(cuDoubleComplex *h_plot, double x_ini, double y_ini, double x
     cudaDeviceSynchronize();
     id<<<dim3(WIDTH, 1), dim3(1, HEIGHT)>>>(d_input, x_ini, y_ini, x_res, y_res);
     cudaDeviceSynchronize();
-    zetaterms<<<dim3(WIDTH, HEIGHT, 1), DEPTH>>>(d_plot, d_input);
+    zetaterms<<<dim3(WIDTH, HEIGHT, 1 << DEPTHBLOCKBITS), 1 << DEPTHTHREADBITS>>>(d_plot, d_input);
     cudaDeviceSynchronize();
     // Merge the terms by depth (contiguous range of 1024 blocks)
 
@@ -469,9 +474,9 @@ void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int
     for (int ini = initial; ini <= interval; ini += increment) {
         // Allocate host memory for the plot
         cuDoubleComplex *h_plot;
-        getStatus(cudaMallocHost(&h_plot, ENTRIES), "Failed to allocate cudaMallocHost! ");
+        getStatus(cudaMallocHost(&h_plot, OUTPUTMEMSIZE), "(h_plot) Failed to allocate cudaMallocHost! ");
         cuDoubleComplex *h_input;
-        getStatus(cudaMallocHost(&h_input, ENTRIES), "Failed to allocate cudaMallocHost! ");
+        getStatus(cudaMallocHost(&h_input, OUTPUTMEMSIZE), "(h_input) Failed to allocate cudaMallocHost! ");
 
         // Plot
         double x_ini = -3.25;
@@ -480,8 +485,8 @@ void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int
 
         // Generate image
         unsigned char *h_image, *d_image;
-        getStatus(cudaMallocHost(&h_image, 3*IMGMEMSIZE), "Failed to allocate cudaMallocHost! ");
-        getStatus(cudaHostGetDevicePointer(&d_image, h_image, 0), "Failed to perform host to device for image");
+        getStatus(cudaMallocHost(&h_image, 3*IMGMEMSIZE), "(h_image) Failed to allocate cudaMallocHost! ");
+        getStatus(cudaHostGetDevicePointer(&d_image, h_image, 0), "(d_image) Failed to perform host to device for image");
         cudaDeviceSynchronize();
         generate_phase_plot<<<dim3(WIDTH >> 5, HEIGHT >> 5), dim3(32, 32)>>>(d_image, h_plot, h_input, 32);
         cudaDeviceSynchronize();
@@ -624,30 +629,43 @@ void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int
         // Free memory
         cudaFreeHost(h_plot);
         cudaFreeHost(h_input);
+        cudaFreeHost(h_image);
     }
 }
 
 void generatedepthplot(int initial = 0, int interval = 256, int unitsquare = 256, int increment = 4) {
     interval += initial;
     std::cout << "Generating sequences of images starting at height " << initial << ", resolution " << unitsquare << std::endl;
+    // Allocate host memory for the plot
+    cuDoubleComplex *h_plot;
+    getStatus(cudaMallocHost(&h_plot, MEMSIZE), "(h_plot) Failed to allocate cudaMallocHost! ");
+    cuDoubleComplex *h_input;
+    getStatus(cudaMallocHost(&h_input, OUTPUTMEMSIZE), "(h_input) Failed to allocate cudaMallocHost! ");
     for (int ini = initial; ini <= interval; ini += increment) {
-        // Allocate host memory for the plot
-        cuDoubleComplex *h_plot;
-        getStatus(cudaMallocHost(&h_plot, MEMSIZE), "(h_plot) Failed to allocate cudaMallocHost! ");
-        cuDoubleComplex *h_input;
-        getStatus(cudaMallocHost(&h_input, ENTRIES), "(h_input) Failed to allocate cudaMallocHost! ");
-
         // Plot
         double x_ini = -3.25;
         double y_ini = -2 + ini;
-        // cudaZetaDepth(h_plot, x_ini, y_ini, unitsquare, unitsquare, h_input);
+        cudaZetaDepth(h_plot, x_ini, y_ini, unitsquare, unitsquare, h_input);
 
-        // Free memory
-        cudaFreeHost(h_plot);
-        cudaFreeHost(h_input);
+        for (int z = 0; z < DEPTH; z++)
+        {
+            std::cout << "depth " << z << std::endl;
+            for (int x = 0; x < WIDTH; x += 256)
+            {
+                for (int y = 0; y < HEIGHT; y += 256)
+                {
+                    std::cout << "(" << std::setw(5) << h_plot[HEIGHT * DEPTH * x + DEPTH * y + z].x << " + ";
+                    std::cout <<  std::setw(5) << h_plot[HEIGHT * DEPTH * x + DEPTH * y + z].y << "i, " << ")";
+                }
+                std::cout << std::endl;
+            }
+        }
 
         sleep(5);
-    } 
+    }
+    // Free memory
+    cudaFreeHost(h_plot);
+    cudaFreeHost(h_input);
 }
 
 int main()
