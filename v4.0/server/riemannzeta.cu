@@ -78,13 +78,12 @@ __global__ void zeta(cuDoubleComplex *d_plot, cuDoubleComplex *d_input)
     double smagnitude, angle;
 
     // Straightforward summation
-    int terms = cuCimag(d_input[0])*1.25;
+    int terms = cuCimag(d_input[0])*1.25 + sqrt(cuCimag(d_input[0])) + log(1 + cuCimag(d_input[0]));
     if (terms < 256) {
         terms = 256;
     }
     int n;
-    for (n = 1; n <= terms; n++)
-    {
+    for (n = 1; n <= terms; n++) {
         // Must code the exponentiation manually
         smagnitude = (-1 + ((n & 1) << 1)) / exp(cuCreal(z) * log((double)n));
         angle = cuCimag(z) * log((double)n);
@@ -106,8 +105,6 @@ __global__ void zeta(cuDoubleComplex *d_plot, cuDoubleComplex *d_input)
     sum = cuCdiv(sum, temp);
 
     // Store the result
-    __threadfence();
-    __syncthreads();
     d_plot[idx*width + idy] = sum;
 }
 
@@ -131,8 +128,7 @@ __global__ void testterms(cuDoubleComplex *d_cube, cuDoubleComplex *d_input)
     double smagnitude, angle;
 
     // Straightforward summation
-    for (int k = 1; k <= CASCADE; k++)
-    {
+    for (int k = 1; k <= CASCADE; k++) {
         // Determine n
         int n = k + idz*CASCADE;
         sum = cuCadd(sum, z);
@@ -353,7 +349,7 @@ void cudaZetaDepth(cuDoubleComplex *h_cube, cuDoubleComplex *h_sum, cuDoubleComp
     cudaFree(d_input);
 }
 
-__global__ void generate_phase_plot() {
+__global__ void generate_phase_plot(unsigned char *d_image, cuDoubleComplex *d_plot, cuDoubleComplex *d_input, int unitsquare) {
     // Obtain pixel subcoordinates
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int idy = blockIdx.y * blockDim.y + threadIdx.y;
