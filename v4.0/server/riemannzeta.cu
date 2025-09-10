@@ -45,7 +45,7 @@
 #define TERMS (DEPTH*CASCADE)
 #define BATCHES 1000
 #define MEMSIZE (sizeof(cuDoubleComplex) * WIDTH * HEIGHT * DEPTH)
-#define IMGMEMSIZE (sizeof(unsigned char) * WIDTH * HEIGHT)
+#define IMGMEMSIZE (sizeof(double) * WIDTH * HEIGHT)
 
 // CUDA Code
 
@@ -84,12 +84,13 @@ __global__ void zeta(cuDoubleComplex *d_plot, cuDoubleComplex *d_input)
     double smagnitude, angle;
 
     // Straightforward summation
-    int terms = cuCimag(d_input[0])*1.25 + sqrt(cuCimag(d_input[0])) + log(1 + cuCimag(d_input[0]));
+    int terms = cuCimag(d_input[0])*1.25;
     if (terms < 256) {
         terms = 256;
     }
     int n;
-    for (n = 1; n <= terms; n++) {
+    for (n = 1; n <= terms; n++)
+    {
         // Must code the exponentiation manually
         smagnitude = (-1 + ((n & 1) << 1)) / exp(cuCreal(z) * log((double)n));
         angle = cuCimag(z) * log((double)n);
@@ -111,6 +112,8 @@ __global__ void zeta(cuDoubleComplex *d_plot, cuDoubleComplex *d_input)
     sum = cuCdiv(sum, temp);
 
     // Store the result
+    __threadfence();
+    __syncthreads();
     d_plot[idx*width + idy] = sum;
 }
 
@@ -134,7 +137,8 @@ __global__ void zetaterms(cuDoubleComplex *d_plot, double x_ini, double y_ini, d
     double smagnitude, angle;
 
     // Straightforward summation
-    for (int k = 1; k <= CASCADE; k++) {
+    for (int k = 1; k <= CASCADE; k++)
+    {
         // Determine n
         int n = k + idz*CASCADE;
         // Must code the exponentiation manually
@@ -144,14 +148,11 @@ __global__ void zetaterms(cuDoubleComplex *d_plot, double x_ini, double y_ini, d
         sum = cuCadd(sum, temp);
     }
 
-    // Average out, only applicable for the last block and thread by depth
-    if (blockIdx.z == gridDim.z - 1 && threadIdx.z == blockDim.z - 1) {
-        int n = 1 + depth*CASCADE;
-        smagnitude = (-1 + ((n & 1) << 1)) / exp(cuCreal(z) * log((double)n));
-        angle = cuCimag(z) * log((double)n);
-        temp = make_cuDoubleComplex(smagnitude * cos(angle) / 2, -smagnitude * sin(angle) / 2);
-        sum = cuCadd(sum, temp);
-    }
+    // Average out
+    smagnitude = (-1 + ((n & 1) << 1)) / exp(cuCreal(z) * log((double)n));
+    angle = cuCimag(z) * log((double)n);
+    temp = make_cuDoubleComplex(smagnitude * cos(angle) / 2, -smagnitude * sin(angle) / 2);
+    sum = cuCadd(sum, temp);
 
     // Must code the coefficient manually
     temp = make_cuDoubleComplex(1 - cuCreal(z), -cuCimag(z)); // temp is now the complement of z
@@ -375,212 +376,19 @@ int server() {
     return EXIT_SUCCESS;
 }
 
-__global__ void generate_phase_plot(unsigned char *d_image, cuDoubleComplex *d_plot, cuDoubleComplex *d_input, int unitsquare) {
+__global__ void generate_phase_plot() {
     // Obtain pixel subcoordinates
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     int idy = blockIdx.y * blockDim.y + threadIdx.y;
     int width = gridDim.y * blockDim.y;
-
-            
-            double2 z = d_input[idx*HEIGHT + idy];
-            double2 zeta = d_plot[idx*HEIGHT + idy];
-            double magnitude = cuCabs(zeta);
-            double angle = atan2(cuCimag(zeta), cuCreal(zeta));
-            double lightness = magnitude;
-            double csaturation = 0.36;
-
-            if (angle < 0) {
-                angle += 2*M_PI;
-            }
-            double slope = cuCreal(zeta)/cuCimag(zeta);
-            double islope = cuCimag(zeta)/cuCreal(zeta);
-            unsigned char cross = ((abs(cuCreal(zeta)) < 0.0625) || (abs(slope) < 0.015625))
-                                + ((abs(cuCimag(zeta)) < 0.0625) || (abs(islope) < 0.015625)) ;
-            // Output gridlines
-            switch (cross) {
-                case 1:
-                    csaturation = 0.09;
-                    break;
-                case 2:
-                    csaturation = 0;
-                    break;
-            }
-            // Checkerboarding
-            if (magnitude < 32 && (((((int)(floor(zeta.x))) & 1) + (((int)(floor(zeta.y))) & 1)) & 1)) {
-                csaturation = cross ? 0.25 : csaturation * 64./36.;
-            }
-            // Magnitude
-            if (lightness > 65536) {
-                lightness -= 24576; // Triangulous2
-            }                
-            else if (lightness > 32768) {
-                lightness -= 12288; // Triangulous
-            }                
-            else if (lightness > 16384) {
-                lightness -= 6144; // Volleo
-            }                
-            else if (lightness > 8192) {
-                lightness -= 3072; // Whalend
-            }                
-            else if (lightness > 4096) {
-                lightness -= 1536; // Terrence
-            }
-            else if (lightness > 2048) {
-                lightness -= 768; // Triferatu
-            }
-            else if (lightness > 512) {
-                lightness -= 384; // Triad
-            }
-            else if (lightness > 256) {
-                lightness -= 192; // Threejay
-            }
-            else if (lightness > 128) {
-                lightness -= 96; // 32 to 160
-            }
-            else if (lightness > 64) {
-                lightness -= 48; // 16 to 80
-            }
-            else if (lightness > 32) {
-                lightness -= 28; // 4 to 36
-            }
-            else if (lightness > 24) {
-                lightness -= 21; // 3 to 11
-            }
-            else if (lightness > 16) {
-                lightness -= 14; // 2 to to 10
-            }
-            else if (lightness > 8) {
-                lightness -= 7.5 ; // 8/16 to 8.5
-            }
-            else if (lightness > 7) {
-                lightness -= 6.5625; // 7/16
-            }
-            else if (lightness > 6) {
-                lightness -= 5.625; // 6/16
-            }
-            else if (lightness > 5) {
-                lightness -= 4.6875; // 5/16
-            }
-            else if (lightness > 4) {
-                lightness -= 3.75; // 4/16
-            }
-            else if (lightness > 3) {
-                lightness -= 2.8125; // 3/16
-            }
-            else if (lightness > 2) {
-                lightness -= 1.875; // 2/16
-            }
-            else if (lightness > 1) {
-                lightness -= 0.9375; // 1/16
-            }
-
-            // Output
-            lightness = 0.96/(1 + 1.0/sqrtf(lightness)); // sigmoid
-            // Unit circle
-            if (magnitude < 1) {
-                int sector = ((int)(angle*6/M_PI)) % 3;
-                switch (sector) {
-                    case 2:
-                        csaturation = 0.16;
-                        break;
-                    case 1:
-                        csaturation = 0.09;
-                        break;
-                    case 0:
-                        csaturation = 0;
-                        break;
-                    default:
-                        csaturation = 1;
-                        break;
-                }
-            } // Antidiagonal
-            else if (cross) {
-                lightness /= 4;
-                lightness += 0.375;
-            }
-            else {
-                if (slope < 0) {
-                    csaturation = 1 - (1 - csaturation) / 2;
-                }
-                else {
-                    
-                }
-            }
-
-            // Input
-            if ((int)(cuCreal(z)) - cuCreal(z) == 0 || (int)(cuCimag(z)) - cuCimag(z) == 0) {
-                lightness = lightness*lightness*lightness/sqrtf(2);
-                csaturation = 1;
-            }
-
-            // Color (from NVDA)
-            idx = 3*(idx*HEIGHT + idy);
-            float nNormalizedH = angle/2/M_PI;
-            float nNormalizedL = lightness;
-            float nNormalizedS = 1 - csaturation;
-            float nM1, nM2, nR, nG, nB;
-            float nh = 0.0f;
-            if (nNormalizedL <= 0.5F)
-                nM2 = nNormalizedL * (1.0F + nNormalizedS);
-            else
-                nM2 = nNormalizedL + nNormalizedS - nNormalizedL * nNormalizedS;
-            nM1 = 2.0F * nNormalizedL - nM2;
-            if (nNormalizedS == 0.0F)
-                nR = nG = nB = nNormalizedL;
-            else
-            {
-                nh = nNormalizedH + 0.3333F;
-                if (nh > 1.0F)
-                    nh -= 1.0F;
-            }
-            float nMDiff = nM2 - nM1;
-            if (0.6667F < nh)
-                nR = nM1;
-            else
-            {    
-                if (nh < 0.1667F)
-                    nR = (nM1 + nMDiff * nh * 6.0F); // / 0.1667F
-                else if (nh < 0.5F)
-                    nR = nM2;
-                else
-                    nR = nM1 + nMDiff * ( 0.6667F - nh ) * 6.0F; // / 0.1667F
-            }
-            // Green   
-            nh = nNormalizedH;
-            if (0.6667F < nh)
-                nG = nM1;
-            else
-            {
-                if (nh < 0.1667F)
-                    nG = (nM1 + nMDiff * nh * 6.0F); // / 0.1667F
-                else if (nh < 0.5F)
-                    nG = nM2;
-                else
-                    nG = nM1 + nMDiff * (0.6667F - nh ) * 6.0F; // / 0.1667F
-            }
-            // Blue    
-            nh = nNormalizedH - 0.3333F;
-            if (nh < 0.0F)
-                nh += 1.0F;
-            if (0.6667F < nh)
-                nB = nM1;
-            else
-            {
-                if (nh < 0.1667F)
-                    nB = (nM1 + nMDiff * nh * 6.0F); // / 0.1667F
-                else if (nh < 0.5F)
-                    nB = nM2;
-                else
-                    nB = nM1 + nMDiff * (0.6667F - nh ) * 6.0F; // / 0.1667F
-            }        
-            d_image[idx    ] = 255*(nB);
-            d_image[idx + 1] = 255*(nG);
-            d_image[idx + 2] = 255*(nR);
+    // 
 }
 
-void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int increment = 4) {
-    interval += initial;
-    for (int ini = initial; ini <= interval; ini += increment) {
+void generateplot() {
+    const unsigned int unitsquare = 256;
+    const int INI = 0;
+    const int INTERVAL = 7777;
+    for (int ini = INI; ini <= INI + INTERVAL; ini += 4) {
         // Allocate host memory for the plot
         cuDoubleComplex *h_plot;
         getStatus(cudaMallocHost(&h_plot, MEMSIZE/DEPTH), "Failed to allocate cudaMallocHost! ");
@@ -593,26 +401,161 @@ void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int
         cudaZeta(h_plot, x_ini, y_ini, unitsquare, unitsquare, h_input);
 
         // Generate image
-        unsigned char *h_image, *d_image;
-        getStatus(cudaMallocHost(&h_image, 3*IMGMEMSIZE), "Failed to allocate cudaMallocHost! ");
-        getStatus(cudaHostGetDevicePointer(&d_image, h_image, 0), "Failed to perform host to device for image");
-        cudaDeviceSynchronize();
-        generate_phase_plot<<<dim3(WIDTH >> 5, HEIGHT >> 5), dim3(32, 32)>>>(d_image, h_plot, h_input, 32);
-        cudaDeviceSynchronize();
-        cudaFree(d_image);
+        unsigned char *h_image;
+        getStatus(cudaMallocHost(&h_input, 3*IMGMEMSIZE), "Failed to allocate cudaMallocHost! ");
+        
+        cv::Mat3b image = cv::Mat3b::zeros(WIDTH, HEIGHT);
+        for (int x = 0; x < WIDTH; x++)
+        {
+            for (int y = 0; y < HEIGHT; y++)
+            {
+                
+                double z_x = x_ini + (double)x/unitsquare;
+                double z_y = y_ini + (double)y/unitsquare;
+                double2 zeta = h_plot[x*HEIGHT + y];
+                double magnitude = cuCabs(zeta);
+                double angle = atan2(cuCimag(zeta), cuCreal(zeta)) + 2*M_PI;
+                double lightness = magnitude;
+                double csaturation = 0.36;
+                double slope = cuCreal(zeta)/cuCimag(zeta);
+                double islope = cuCimag(zeta)/cuCreal(zeta);
+                unsigned char cross = ((abs(cuCreal(zeta)) < 0.0625) || (abs(slope) < 0.015625))
+                                    + ((abs(cuCimag(zeta)) < 0.0625) || (abs(islope) < 0.015625)) ;
+                // Output gridlines
+                switch (cross) {
+                    case 1:
+                        csaturation = 0.09;
+                        break;
+                    case 2:
+                        csaturation = 0;
+                        break;
+                }
+                // Checkerboarding
+                if (((((int)(floor(zeta.x))) & 1) + (((int)(floor(zeta.y))) & 1)) & 1) {
+                    csaturation = cross ? 0.25 : csaturation * 64./36.;
+                }
+                // Magnitude
+                if (lightness > 65536) {
+                    lightness -= 24576; // Triangulous2
+                }                
+                else if (lightness > 32768) {
+                    lightness -= 12288; // Triangulous
+                }                
+                else if (lightness > 16384) {
+                    lightness -= 6144; // Volleo
+                }                
+                else if (lightness > 8192) {
+                    lightness -= 3072; // Whalend
+                }                
+                else if (lightness > 4096) {
+                    lightness -= 1536; // Terrence
+                }
+                else if (lightness > 2048) {
+                    lightness -= 768; // Triferatu
+                }
+                else if (lightness > 512) {
+                    lightness -= 384; // Triad
+                }
+                else if (lightness > 256) {
+                    lightness -= 192; // Threejay
+                }
+                else if (lightness > 128) {
+                    lightness -= 96; // 32 to 160
+                }
+                else if (lightness > 64) {
+                    lightness -= 48; // 16 to 80
+                }
+                else if (lightness > 32) {
+                    lightness -= 28; // 4 to 36
+                }
+                else if (lightness > 24) {
+                    lightness -= 21; // 3 to 11
+                }
+                else if (lightness > 16) {
+                    lightness -= 14; // 2 to to 10
+                }
+                else if (lightness > 8) {
+                    lightness -= 7.5 ; // 8/16 to 8.5
+                }
+                else if (lightness > 7) {
+                    lightness -= 6.5625; // 7/16
+                }
+                else if (lightness > 6) {
+                    lightness -= 5.625; // 6/16
+                }
+                else if (lightness > 5) {
+                    lightness -= 4.6875; // 5/16
+                }
+                else if (lightness > 4) {
+                    lightness -= 3.75; // 4/16
+                }
+                else if (lightness > 3) {
+                    lightness -= 2.8125; // 3/16
+                }
+                else if (lightness > 2) {
+                    lightness -= 1.875; // 2/16
+                }
+                else if (lightness > 1) {
+                    lightness -= 0.9375; // 1/16
+                }
 
-        // Save image
-        cv::Mat3f hls = cv::Mat(WIDTH, HEIGHT, CV_8UC3, h_image);
+                // Output
+                lightness = 0.96/(1 + 1.0/sqrt(lightness)); // sigmoid
+                // Unit circle
+                if (magnitude < 1) {
+                    int sector = ((int)(angle*6/M_PI)) % 3;
+                    switch (sector) {
+                        case 2:
+                            csaturation = 0.16;
+                            break;
+                        case 1:
+                            csaturation = 0.09;
+                            break;
+                        case 0:
+                            csaturation = 0;
+                            break;
+                        default:
+                            csaturation = 1;
+                            break;
+                    }
+                } // Antidiagonal
+                else if (cross) {
+                    lightness /= 4;
+                    lightness += 0.375;
+                }
+                else {
+                    if (slope < 0) {
+                        csaturation = 1 - (1 - csaturation) / 3;
+                    }
+                    else {
+                        csaturation = 1 - (1 - csaturation) / 2;
+                    }
+                }
+
+                // Input
+                if ((int)(z_x*unitsquare) % unitsquare == 0 || ((int)(z_y*unitsquare)) % unitsquare == 0) {
+                    lightness = lightness*lightness*lightness/sqrt(2);
+                    csaturation = 1;
+                }
+
+                // Color
+                cv::Mat3f hls(cv::Vec3f(angle*180/M_PI, lightness, 1 - csaturation));
+                cv::Mat3f bgr;
+                cvtColor(hls, bgr, cv::COLOR_HLS2BGR); 
+                // printf("(%3.2f %+3.2f)", cuCreal(zeta), cuCimag(zeta));
+                // Generate Color
+                image.at<cv::Vec3b>(x, y) = cv::Vec3b((int)(bgr.at<cv::Vec3f>(0,0)[0]*255), (int)(bgr.at<cv::Vec3f>(0,0)[1]*255), (int)(bgr.at<cv::Vec3f>(0,0)[2]*255));
+            }
+            // std::cout << std::endl;
+        }
         std::stringstream ss;
         ss << std::setbase(10) << std::setw(4) << ini;
         std::string hexstr = ss.str();
         std::replace(hexstr.begin(), hexstr.end(), ' ', '0');
-        cv::imwrite("test/plot/Plot" + hexstr + ".png", hls);
+        cv::imwrite("test/plot/Plot" + hexstr + ".png", image);
 
-        // Draw spiral frames
-        const int FINE = unitsquare / 8;
-        const int YFINE = FINE / 8;
-        for (int y = 0; y < HEIGHT; y += FINE/2) {
+        // Draw spiral
+        for (int y = 0; y < HEIGHT; y += 16) {
             // Generate header and spiral plot
             cv::Ptr<cv::freetype::FreeType2> ft2;
             ft2 = cv::freetype::createFreeType2();
@@ -638,25 +581,28 @@ void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int
             angletext << "phase = " << atan2(cuCimag(zeta), cuCreal(zeta))*180/M_PI << " deg";
             headerstr = angletext.str();
             ft2->putText(header, headerstr, cv::Point(1440,16), 16, cv::Scalar(255, 255, 255), -1, cv::LINE_8, true);
+            
             std::stringstream ss;
             ss << std::setbase(10) << std::setw(4) << ini << ".x" << std::setbase(16) << std::setw(4) << y;
             hexstr = ss.str();
             std::replace(hexstr.begin(), hexstr.end(), ' ', '0');
+
             cv::imwrite("test/header/Header" + hexstr + ".gif", header);
             std::cout << " H\t" << hexstr << std::endl;
             
-            // Spiral graph
+            // Spiral graph, vertical direction
             cv::Mat3b spiralimage = cv::Mat3b::zeros(WIDTH, HEIGHT);
             const int tracegrid = 64;
-            // Vertical
-            for (int t_x = WIDTH/2 - unitsquare / 2; t_x <= WIDTH/2 + unitsquare / 2; t_x += FINE) {
+            const int YFINE = 4;
+            const int FINE = 16;
+            for (int t_x = WIDTH/2 - tracegrid / 2; t_x <= WIDTH/2 + tracegrid / 2; t_x += FINE) {
                 for (int t_y = 0; t_y < y - 1; t_y += YFINE) {
                     double2 zeta = h_plot[t_x*HEIGHT + t_y];
                     double2 dzeta = h_plot[t_x*HEIGHT + t_y + YFINE];
                     cv::Point2d tracezeta(HEIGHT/2 + tracegrid*cuCimag(zeta), WIDTH/2 + tracegrid*cuCreal(zeta));
                     cv::Point2d tracedzeta(HEIGHT/2 + tracegrid*cuCimag(dzeta), WIDTH/2 + tracegrid*cuCreal(dzeta));
-                    cv::Vec3f righthalf(0, 0, 240*(1 - (((float)t_x) - WIDTH/2)/unitsquare) + 10);
-                    cv::Vec3f lefthalf(240*(((float)t_x) - WIDTH/2 + unitsquare)/unitsquare + 10, 0, 0);
+                    cv::Vec3f righthalf(0, 0, 240*(1 - (((float)t_x) - WIDTH/2)/tracegrid) + 10);
+                    cv::Vec3f lefthalf(240*(((float)t_x) - WIDTH/2 + tracegrid)/tracegrid + 10, 0, 0);
                     if (t_x < WIDTH / 2)
                         cv::line(spiralimage, tracezeta, tracedzeta, lefthalf, 1, cv::LINE_AA);
                     else if (t_x > WIDTH / 2)
@@ -664,15 +610,15 @@ void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int
                         
                 }
             }
-            // Horizontal
-            for (int t_x = WIDTH/2 - unitsquare / 2; t_x < WIDTH/2 + unitsquare / 2; t_x += FINE) {
+            // Horizontal lines
+            for (int t_x = WIDTH/2 - tracegrid / 2; t_x < WIDTH/2 + tracegrid / 2; t_x += FINE) {
                 for (int t_y = 0; t_y <= y; t_y += FINE) {
                     double2 zeta = h_plot[t_x*HEIGHT + t_y];
                     double2 lzeta = h_plot[(t_x + FINE)*HEIGHT + t_y];
                     cv::Point2d tracezeta(HEIGHT/2 + tracegrid*cuCimag(zeta), WIDTH/2 + tracegrid*cuCreal(zeta));
                     cv::Point2d tracelzeta(HEIGHT/2 + tracegrid*cuCimag(lzeta), WIDTH/2 + tracegrid*cuCreal(lzeta));
-                    cv::Vec3f righthalf(0, 0, 240*(1 - (((float)t_x) - WIDTH/2)/unitsquare) + 10);
-                    cv::Vec3f lefthalf(240*(((float)t_x) - WIDTH/2 + unitsquare)/unitsquare + 10, 0, 0);
+                    cv::Vec3f righthalf(0, 0, 240*(1 - (((float)t_x) - WIDTH/2)/tracegrid) + 10);
+                    cv::Vec3f lefthalf(240*(((float)t_x) - WIDTH/2 + tracegrid)/tracegrid + 10, 0, 0);
                     if (t_x < WIDTH / 2)
                         cv::line(spiralimage, tracezeta, tracelzeta, lefthalf, 1, cv::LINE_AA);
                     else if (t_x >= WIDTH / 2)
@@ -681,7 +627,7 @@ void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int
             }
             // Front end
             cv::Vec3f front(0,240,0);
-            for (int t_x = WIDTH/2 - unitsquare/2; t_x < WIDTH/2 + unitsquare/2 + unitsquare; t_x += YFINE) {
+            for (int t_x = WIDTH/2 - tracegrid/2; t_x < WIDTH/2 + tracegrid/2 + tracegrid; t_x += YFINE) {
                 int t_y = y;
                 double2 zeta = h_plot[t_x*HEIGHT + t_y];
                 double2 lzeta = h_plot[(t_x + YFINE)*HEIGHT + t_y];
@@ -695,7 +641,7 @@ void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int
             }
             // Basel line
             cv::Vec3f unity(0,250,0);
-            int t_x = WIDTH/2 + unitsquare/2 + unitsquare;
+            int t_x = WIDTH/2 + tracegrid/2 + tracegrid;
             for (int t_y = 0; t_y < y - 1; t_y += 1) {
                 double2 zeta = h_plot[t_x*HEIGHT + t_y];
                 double2 dzeta = h_plot[t_x*HEIGHT + t_y + 1];
@@ -764,7 +710,7 @@ int main()
     }
 
     // Generate plot
-    generateplot(7000, 1024, 256, 16);
+    generateplot();
 
     // Construct server
     server();
