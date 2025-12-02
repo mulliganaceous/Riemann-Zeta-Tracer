@@ -9,7 +9,10 @@
 int getStatus(cudaError_t status, const char* msg) {
     if (status != cudaSuccess) {
         std::cerr << msg << cudaGetErrorString(status) << std::endl;
-        exit(status);
+        // exit(status);
+    }
+    else {
+        std::cerr << msg << cudaGetErrorString(status) << std::endl;
     }
     return 0;
 }

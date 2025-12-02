@@ -29,19 +29,23 @@
 
 // Dimensions
 #define WIDTH 256
-#define HEIGHT 256
+#define HEIGHT 320
 #define ENTRIES (WIDTH*HEIGHT)
 #define DEPTHBLOCKBITS 0
 #define DEPTHTHREADBITS 10
 #define DEPTH (1 << (DEPTHBLOCKBITS + DEPTHTHREADBITS))
-#define CASCADE 64
+#define CASCADE 1024
 #define TERMS (DEPTH*CASCADE)
-#define BATCHES 1000
+#define BATCHES 1
 #define MEMSIZE (sizeof(cuDoubleComplex) * WIDTH * HEIGHT * DEPTH)
 #define OUTPUTMEMSIZE (sizeof(cuDoubleComplex) * WIDTH * HEIGHT)
 #define IMGMEMSIZE (sizeof(unsigned char) * WIDTH * HEIGHT)
 
-// CUDA Code
+// Hashmarks
+#define HASHMARK 4
+
+// Saved output
+#define PREFIX "/home/samaria/S/test1M/"
 
 // Kernel definition
 /*
@@ -162,7 +166,7 @@ __global__ void etaterms(cuDoubleComplex *d_cube, cuDoubleComplex *d_input)
     cuDoubleComplex sum = make_cuDoubleComplex(0.0, 0.0);
     cuDoubleComplex temp;
     double smagnitude, angle;
-    int cascade = CASCADE;// + (int)cuCimag(d_input[0])/CASCADE;
+    int cascade = CASCADE; // + (int)cuCimag(d_input[0])/DEPTH;
     if (cascade < CASCADE) {
         cascade = CASCADE;
     }
@@ -176,6 +180,9 @@ __global__ void etaterms(cuDoubleComplex *d_cube, cuDoubleComplex *d_input)
         angle = cuCimag(z) * log((double)n);
         temp = make_cuDoubleComplex(smagnitude * cos(angle), -smagnitude * sin(angle));
         sum = cuCadd(sum, temp);
+        if ((idx | idy | idz) == 0 && (k & ((1 << 4) - 1)) == 0) {
+            printf("\r\tIteration %d of %d\n", k, cascade);
+        }
     }
     __syncthreads();
 
@@ -304,7 +311,7 @@ void cudaZeta(cuDoubleComplex *h_plot, double x_ini, double y_ini, double x_res,
     cudaFree(d_plot);
     cudaFree(d_input);
 
-    std::cout << "Generated plot starting from height " << y_ini << " in time " << (float)(clock() - t0)/CLOCKS_PER_SEC << "s." << std::endl;
+    std::cout << "\033[32mGenerated plot starting from height " << y_ini << " in time " << (float)(clock() - t0)/CLOCKS_PER_SEC << "s." << std::endl << "\033[0m";
 }
 
 /*
@@ -318,8 +325,10 @@ void cudaZetaDepth(cuDoubleComplex *h_cube, cuDoubleComplex *h_sum, cuDoubleComp
 
     // Host and device-side memory allocation
     cuDoubleComplex *d_cube, *d_sum, *d_plot, *d_input;
-    getStatus(cudaHostGetDevicePointer(&d_cube, h_cube, 0), "(cube) Failed to allocate cudaMemcpy! ");
-    getStatus(cudaHostGetDevicePointer(&d_sum, h_sum, 0), "(plot) Failed to allocate cudaMemcpy! ");
+    getStatus(cudaMalloc(&d_cube, MEMSIZE), "(cube) Failed to malloc!");
+    getStatus(cudaMalloc(&d_sum, MEMSIZE), "(sum) Failed to malloc!");
+    getStatus(cudaMemcpy(d_cube, h_cube, MEMSIZE, cudaMemcpyHostToDevice),"(cube) Failed to transfer to deviceside!");
+    getStatus(cudaMemcpy(d_sum, h_sum, MEMSIZE, cudaMemcpyHostToDevice),"(sum) Failed to transfer to deviceside!");
     getStatus(cudaHostGetDevicePointer(&d_plot, h_plot, 0), "(plot) Failed to allocate cudaMemcpy! ");
     getStatus(cudaHostGetDevicePointer(&d_input, h_input, 0), "(input) Failed to allocate cudaMemcpy! ");
 
@@ -334,6 +343,7 @@ void cudaZetaDepth(cuDoubleComplex *h_cube, cuDoubleComplex *h_sum, cuDoubleComp
 
     // Merge the terms by depth (contiguous range of 1024 blocks)
     warpReduceSum<<<dim3(WIDTH, HEIGHT, DEPTH >> 7), dim3(1, 1, 64)>>>(d_cube, d_sum, 0, 64);
+    cudaDeviceSynchronize();
     warpReduceSum<<<dim3(WIDTH, HEIGHT, DEPTH >> 7), dim3(1, 1, 64)>>>(d_sum, d_sum, 64, 0);
     cudaDeviceSynchronize();
     getLayer<<<dim3(WIDTH, 1), dim3(1, HEIGHT)>>>(d_sum, d_plot, 0);
@@ -343,6 +353,8 @@ void cudaZetaDepth(cuDoubleComplex *h_cube, cuDoubleComplex *h_sum, cuDoubleComp
 
     // Finish execution and free memory
     std::cout << "Generated plot starting from height " << y_ini << " in time " << (float)(clock() - t0)/CLOCKS_PER_SEC << "s." << std::endl;
+    getStatus(cudaMemcpy(h_cube, d_cube, MEMSIZE, cudaMemcpyDeviceToHost),"(cube) Failed to transfer to hostside!");
+    getStatus(cudaMemcpy(h_sum, d_sum, MEMSIZE, cudaMemcpyDeviceToHost),"(sum) Failed to transfer to hostside!");
     cudaFree(d_cube);
     cudaFree(d_sum);
     cudaFree(d_plot);
@@ -562,143 +574,199 @@ void plot(cuDoubleComplex *h_plot, cuDoubleComplex *h_input, int ini, unsigned u
     cudaDeviceSynchronize();
     generate_phase_plot<<<dim3(WIDTH >> 5, HEIGHT >> 5), dim3(32, 32)>>>(d_image, h_plot, h_input, 32);
     cudaDeviceSynchronize();
-    cudaFree(d_image);
 
     // Save image
     cv::Mat3f hls = cv::Mat(WIDTH, HEIGHT, CV_8UC3, h_image);
     std::stringstream ss;
+    ss << PREFIX << "plot/";
     ss << std::setbase(10) << std::setw(4) << ini;
+    ss << ".png";
     std::string hexstr = ss.str();
     std::replace(hexstr.begin(), hexstr.end(), ' ', '0');
-    cv::imwrite("test/plot/Plot" + hexstr + ".png", hls);
+    cv::imwrite(hexstr, hls);
 
-    // Draw spiral frames
-    const int FINE = unitsquare / 8;
-    const int YFINE = FINE / 8;
-    for (int y = 0; y < HEIGHT; y += FINE/2) {
-        // Generate header and spiral plot
-        cv::Ptr<cv::freetype::FreeType2> ft2;
-        ft2 = cv::freetype::createFreeType2();
-        ft2->loadFontData("/usr/share/fonts/opentype/unifont/unifont.otf", 0 );
-        double2 zeta = h_plot[WIDTH*HEIGHT/2 + y];
-        double2 input = h_input[WIDTH*HEIGHT/2 + y];
-        double z_y = cuCreal(input);
-
-        // Header
-        cv::Mat3b header = cv::Mat3b::zeros((1080 - HEIGHT)/2, WIDTH);
-        std::stringstream headertext;
-        std::stringstream decimaltext;
-        decimaltext << std::setprecision(3) << std::setw(3) << z_y - (int)z_y;
-        std::string hexstr = decimaltext.str();
-        headertext << "zeta(0.5 + i" << (int)z_y << std::setprecision(3) << "." << hexstr.substr(2) << ") = " << (cuCreal(zeta) < 0 ? '-' : ' ') << (cuCreal(zeta) < 0 ? -cuCreal(zeta) : cuCreal(zeta)) << ' ' << (cuCimag(zeta) < 0 ? '-' : '+') << " i" << (cuCimag(zeta) < 0 ? -cuCimag(zeta) : cuCimag(zeta));
-        std::string headerstr = headertext.str();
-        ft2->putText(header, headerstr, cv::Point(0,16), 16, cv::Scalar(255, 255, 255), -1, cv::LINE_8, true);
-        std::stringstream abstext;
-        abstext << "magnitude = " << cuCabs(zeta);
-        headerstr = abstext.str();
-        ft2->putText(header, headerstr, cv::Point(960,16), 16, cv::Scalar(255, 255, 255), -1, cv::LINE_8, true);
-        std::stringstream angletext;
-        angletext << "phase = " << atan2(cuCimag(zeta), cuCreal(zeta))*180/M_PI << " deg";
-        headerstr = angletext.str();
-        ft2->putText(header, headerstr, cv::Point(1440,16), 16, cv::Scalar(255, 255, 255), -1, cv::LINE_8, true);
-        std::stringstream ss;
-        ss << std::setbase(10) << std::setw(4) << ini << ".x" << std::setbase(16) << std::setw(4) << y;
-        hexstr = ss.str();
-        std::replace(hexstr.begin(), hexstr.end(), ' ', '0');
-        cv::imwrite("test/header/Header" + hexstr + ".gif", header);
-        std::cout << " H\t" << hexstr << std::endl;
-
-        // Spiral graph
-        cv::Mat3b spiralimage = cv::Mat3b::zeros(WIDTH, HEIGHT);
-        const int tracegrid = 16;
-        // Vertical
-        for (int t_x = WIDTH/2 - unitsquare / 2; t_x <= WIDTH/2 + unitsquare / 2; t_x += FINE) {
-            for (int t_y = 0; t_y < y - 1; t_y += YFINE) {
-                double2 zeta = h_plot[t_x*HEIGHT + t_y];
-                double2 dzeta = h_plot[t_x*HEIGHT + t_y + YFINE];
-                cv::Point2d tracezeta(HEIGHT/2 + tracegrid*cuCimag(zeta), WIDTH/2 + tracegrid*cuCreal(zeta));
-                cv::Point2d tracedzeta(HEIGHT/2 + tracegrid*cuCimag(dzeta), WIDTH/2 + tracegrid*cuCreal(dzeta));
-                cv::Vec3f righthalf(0, 0, 240*(1 - (((float)t_x) - WIDTH/2)/unitsquare) + 10);
-                cv::Vec3f lefthalf(240*(((float)t_x) - WIDTH/2 + unitsquare)/unitsquare + 10, 0, 0);
-                if (t_x < WIDTH / 2)
-                    cv::line(spiralimage, tracezeta, tracedzeta, lefthalf, 1, cv::LINE_AA);
-                else if (t_x > WIDTH / 2)
-                    cv::line(spiralimage, tracezeta, tracedzeta, righthalf, 1, cv::LINE_AA);
-
-            }
-        }
-        // Horizontal
-        for (int t_x = WIDTH/2 - unitsquare / 2; t_x < WIDTH/2 + unitsquare / 2; t_x += FINE) {
-            for (int t_y = 0; t_y <= y; t_y += FINE) {
-                double2 zeta = h_plot[t_x*HEIGHT + t_y];
-                double2 lzeta = h_plot[(t_x + FINE)*HEIGHT + t_y];
-                cv::Point2d tracezeta(HEIGHT/2 + tracegrid*cuCimag(zeta), WIDTH/2 + tracegrid*cuCreal(zeta));
-                cv::Point2d tracelzeta(HEIGHT/2 + tracegrid*cuCimag(lzeta), WIDTH/2 + tracegrid*cuCreal(lzeta));
-                cv::Vec3f righthalf(0, 0, 240*(1 - (((float)t_x) - WIDTH/2)/unitsquare) + 10);
-                cv::Vec3f lefthalf(240*(((float)t_x) - WIDTH/2 + unitsquare)/unitsquare + 10, 0, 0);
-                if (t_x < WIDTH / 2)
-                    cv::line(spiralimage, tracezeta, tracelzeta, lefthalf, 1, cv::LINE_AA);
-                else if (t_x >= WIDTH / 2)
-                    cv::line(spiralimage, tracezeta, tracelzeta, righthalf, 1, cv::LINE_AA);
-            }
-        }
-        // Front end
-        cv::Vec3f front(0,240,0);
-        for (int t_x = WIDTH/2 - unitsquare/2; t_x < WIDTH/2 + unitsquare/2 + unitsquare; t_x += YFINE) {
-            int t_y = y;
-            double2 zeta = h_plot[t_x*HEIGHT + t_y];
-            double2 lzeta = h_plot[(t_x + YFINE)*HEIGHT + t_y];
-            cv::Point2d tracezeta(HEIGHT/2 + tracegrid*cuCimag(zeta), WIDTH/2 + tracegrid*cuCreal(zeta));
-            cv::Point2d tracelzeta(HEIGHT/2 + tracegrid*cuCimag(lzeta), WIDTH/2 + tracegrid*cuCreal(lzeta));
-
-            if (t_x < WIDTH / 2)
-                cv::line(spiralimage, tracezeta, tracelzeta, front, 2, cv::LINE_AA);
-            else if (t_x >= WIDTH / 2)
-                cv::line(spiralimage, tracezeta, tracelzeta, front, 2, cv::LINE_AA);
-        }
-        // Basel line
-        cv::Vec3f unity(0,250,0);
-        int t_x = WIDTH/2 + unitsquare/2 + unitsquare;
-        for (int t_y = 0; t_y < y - 1; t_y += 1) {
-            double2 zeta = h_plot[t_x*HEIGHT + t_y];
-            double2 dzeta = h_plot[t_x*HEIGHT + t_y + 1];
-            cv::Point2d tracezeta(HEIGHT/2 + tracegrid*cuCimag(zeta), WIDTH/2 + tracegrid*cuCreal(zeta));
-            cv::Point2d tracedzeta(HEIGHT/2 + tracegrid*cuCimag(dzeta), WIDTH/2 + tracegrid*cuCreal(dzeta));
-            cv::line(spiralimage, tracezeta, tracedzeta, unity, 1, cv::LINE_AA);
-        }
-        // Critical line
-        t_x = WIDTH / 2;
-        cv::Vec3f criticalline(240,240,240);
-        for (int t_y = 0; t_y < y - 1; t_y += 1) {
-            double2 zeta = h_plot[t_x*HEIGHT + t_y];
-            double2 dzeta = h_plot[t_x*HEIGHT + t_y + 1];
-            cv::Point2d tracezeta(HEIGHT/2 + tracegrid*cuCimag(zeta), WIDTH/2 + tracegrid*cuCreal(zeta));
-            cv::Point2d tracedzeta(HEIGHT/2 + tracegrid*cuCimag(dzeta), WIDTH/2 + tracegrid*cuCreal(dzeta));
-            cv::Vec3f righthalf(480*(1-((float)t_x)/WIDTH) + 1./8, 0, 0);
-            cv::Vec3f criticalline(240,240,240);
-            cv::Vec3f lefthalf(0,0,240*((float)t_x)/WIDTH - 1./8);
-            cv::line(spiralimage, tracezeta, tracedzeta, criticalline, 2, cv::LINE_AA);
-        }
-        cv::Vec3f grid(127,127,127);
-        cv::Point2d realbegin(HEIGHT / 2, 0);
-        cv::Point2d realend(HEIGHT/2, WIDTH);
-        cv::Point2d imagbegin(0, WIDTH/2);
-        cv::Point2d imagend(HEIGHT, WIDTH/2);
-        cv::Point2d center(HEIGHT / 2, WIDTH / 2);
-        cv::line(spiralimage, realbegin, realend, grid, 1);
-        cv::line(spiralimage, imagbegin, imagend, grid, 1);
-        cv::circle(spiralimage, center, tracegrid, grid, 1);
-
-        ss = std::stringstream();
-        ss << std::setbase(10) << std::setw(4) << ini << ".x" << std::setbase(16) << std::setw(4) << y;
-        hexstr = ss.str();
-        std::replace(hexstr.begin(), hexstr.end(), ' ', '0');
-
-        cv :: imwrite("test/spiral/Spiral" + hexstr + ".gif", spiralimage);
-        std::cout << " S\t" << hexstr << std::endl;
-    }
-
+    // Free memory
+    cudaFree(d_image);
     cudaFreeHost(h_image);
+}
+
+void plot(std::vector<std::pair<cuDoubleComplex *, cuDoubleComplex *>>h_plot_group, int ini, unsigned unitsquare) {
+    // Draw frames
+    const int height = 1024;
+    const int width = 1920;
+    const int headerheight = 28;
+    const int tracegrid = 32;
+    const int COARSE = unitsquare / 8;
+    const int FINE = 2;
+    const int YFINE = 1;
+    cv::Size frameSize(width, height + 2*headerheight);
+    int fourcc = cv::VideoWriter::fourcc('F','F','V','1');
+    cv::Ptr<cv::freetype::FreeType2> ft2;
+    ft2 = cv::freetype::createFreeType2();
+    ft2->loadFontData("/usr/share/fonts/opentype/unifont/unifont.otf", 0 );
+
+    // Name file
+    std::stringstream ss;
+    ss << PREFIX << "video/" << std::setfill('0')<< std::setw(5) << ini << ".mkv";
+    cv::VideoWriter writer(ss.str(), fourcc, 64, frameSize, 1);
+    ss = std::stringstream();
+
+    for (int k = 0; k < h_plot_group.size(); k++) {
+        cuDoubleComplex *h_plot = h_plot_group[k].first;
+        cuDoubleComplex *h_input = h_plot_group[k].second;
+        for (int y = 0; y < HEIGHT; y += 1) {
+            // Generate header and spiral plot
+            double2 zeta = h_plot[WIDTH*HEIGHT/2 + y];
+            double2 input = h_input[WIDTH*HEIGHT/2 + y];
+            double z_y = cuCimag(input);
+
+            // Header
+            cv::Mat3b header = cv::Mat3b::zeros(headerheight, width);
+            std::stringstream headertext;
+            std::stringstream decimaltext;
+            if (z_y - (int)z_y) {
+                decimaltext << std::setfill('0') << std::setprecision(6) << std::fixed << (z_y - (int)z_y);
+            }
+            else {
+                decimaltext << "0.000000";
+            }
+            std::string hexstr = decimaltext.str();
+            headertext << "ζ(0.5 + i" << (int)cuCimag(input) << std::setw(7) << hexstr.substr(1) << ") = " << std::setprecision(7) << (cuCreal(zeta) < 0 ? "−" : " ") << (cuCreal(zeta) < 0 ? -cuCreal(zeta) : cuCreal(zeta)) << ' ' << (cuCimag(zeta) < 0 ? "−" : "+") << " i" << (cuCimag(zeta) < 0 ? -cuCimag(zeta) : cuCimag(zeta));
+            std::string headerstr = headertext.str();
+            ft2->putText(header, headerstr, cv::Point(0,16), 16, cv::Scalar(255, 255, 255), -1, cv::LINE_8, true);
+            std::stringstream abstext;
+            abstext << "magnitude = " << cuCabs(zeta);
+            headerstr = abstext.str();
+            ft2->putText(header, headerstr, cv::Point(960,16), 16, cv::Scalar(255, 255, 255), -1, cv::LINE_8, true);
+            std::stringstream angletext;
+            angletext << "phase = " << std::fixed << std::setprecision(3) << atan2(cuCimag(zeta), cuCreal(zeta))*180/M_PI << "°";
+            headerstr = angletext.str();
+            ft2->putText(header, headerstr, cv::Point(1440,16), 16, cv::Scalar(255, 255, 255), -1, cv::LINE_8, true);
+
+            // Footer
+            cv::Mat3b footer = cv::Mat3b::zeros(headerheight, width);
+            std::stringstream footertext;
+            footertext << "♡ Made with love by mulliganaceous. Version 4.0. Submitted for #SoME4. All rights reserved.";
+            headerstr = footertext.str();
+            ft2->putText(footer, headerstr, cv::Point(0,16), 16, cv::Scalar(255, 255, 255), -1, cv::LINE_8, true);
+
+            // Spiral graph
+            cv::Mat3b spiralimage = cv::Mat3b::zeros(width, height);
+            cv::Vec3f grid(127,127,127);
+
+            // Vertical
+            for (int t_x = WIDTH/2 - unitsquare / 2; t_x <= WIDTH/2 + unitsquare / 2; t_x += COARSE) {
+                for (int t_k = 0; t_k <= k; t_k++) {
+                    for (int t_y = 0; t_y <= (t_k == k ? y : HEIGHT) - YFINE; t_y += YFINE) {
+                        if (t_x == WIDTH / 2)
+                            continue;
+                        double2 bzeta = h_plot_group[t_k].first[t_x*HEIGHT + t_y];
+                        double2 dzeta = h_plot_group[t_k].first[t_x*HEIGHT + t_y + YFINE];
+                        cv::Point2d tracezeta(height/2 + tracegrid*cuCimag(bzeta), width/2 + tracegrid*cuCreal(bzeta));
+                        cv::Point2d tracedzeta(height/2 + tracegrid*cuCimag(dzeta), width/2 + tracegrid*cuCreal(dzeta));
+                        cv::Vec4f righthalf(0, 0, 240*(1 - (((float)t_x) - WIDTH/2)/unitsquare) + 10, 0.5);
+                        cv::Vec4f lefthalf(240*(((float)t_x) - WIDTH/2 + unitsquare)/unitsquare + 10, 0, 0, 0.5);
+                        if (t_x < WIDTH / 2)
+                            cv::line(spiralimage, tracezeta, tracedzeta, lefthalf, 1);
+                        else if (t_x > WIDTH / 2)
+                            cv::line(spiralimage, tracezeta, tracedzeta, righthalf, 1);
+
+                    }
+                }
+            }
+            // Horizontal
+            for (int t_x = WIDTH/2 - unitsquare / 2; t_x < WIDTH/2 + unitsquare / 2; t_x += FINE) {
+                for (int t_k = 0; t_k <= k; t_k++) {
+                    for (int t_y = 0; t_y <= (t_k == k ? y : HEIGHT); t_y += COARSE) {
+                        double2 bzeta = h_plot_group[t_k].first[t_x*HEIGHT + t_y];
+                        double2 lzeta = h_plot_group[t_k].first[(t_x + FINE)*HEIGHT + t_y];
+                        cv::Point2d tracezeta(height/2 + tracegrid*cuCimag(bzeta), width/2 + tracegrid*cuCreal(bzeta));
+                        cv::Point2d tracelzeta(height/2 + tracegrid*cuCimag(lzeta), width/2 + tracegrid*cuCreal(lzeta));
+                        cv::Vec4f righthalf(0, 0, 240*(1 - (((float)t_x) - WIDTH/2)/unitsquare) + 10, 0.5);
+                        cv::Vec4f lefthalf(240*(((float)t_x) - WIDTH/2 + unitsquare)/unitsquare + 10, 0, 0, 0.5);
+                        if (t_x < WIDTH / 2)
+                            cv::line(spiralimage, tracezeta, tracelzeta, lefthalf, 1);
+                        else if (t_x >= WIDTH / 2)
+                            cv::line(spiralimage, tracezeta, tracelzeta, righthalf, 1);
+                    }
+                }
+            }
+            // Front end
+            cv::Vec3f front(0,240,0);
+            for (int t_x = WIDTH/2 - unitsquare/2; t_x < WIDTH/2 + unitsquare/2 + unitsquare; t_x += YFINE) {
+                int t_y = y;
+                double2 bzeta = h_plot[t_x*HEIGHT + t_y];
+                double2 lzeta = h_plot[(t_x + YFINE)*HEIGHT + t_y];
+                cv::Point2d tracezeta(height/2 + tracegrid*cuCimag(bzeta), width/2 + tracegrid*cuCreal(bzeta));
+                cv::Point2d tracelzeta(height/2 + tracegrid*cuCimag(lzeta), width/2 + tracegrid*cuCreal(lzeta));
+
+                if (t_x < WIDTH / 2)
+                    cv::line(spiralimage, tracezeta, tracelzeta, front, 1);
+                else if (t_x >= WIDTH / 2)
+                    cv::line(spiralimage, tracezeta, tracelzeta, front, 1);
+            }
+            // Basel line
+            cv::Point2d baselbegin(height/2 + tracegrid/8, width / 2 + 1.64493406685*tracegrid);
+            cv::Point2d baselend(height/2 - tracegrid/8, width / 2 + 1.64493406685*tracegrid);
+            cv::line(spiralimage, baselbegin, baselend, grid, 1);
+            cv::Vec3f unity(0,250,250);
+            int t_x = WIDTH/2 + unitsquare/2 + unitsquare;
+            for (int t_k = 0; t_k <= k; t_k++) {
+                for (int t_y = 0; t_y <= (t_k == k ? y : HEIGHT) - 1; t_y += 1) {
+                    double2 zeta = h_plot_group[t_k].first[t_x*HEIGHT + t_y];
+                    double2 dzeta = h_plot_group[t_k].first[t_x*HEIGHT + t_y + 1];
+                    cv::Point2d tracezeta(height/2 + tracegrid*cuCimag(zeta), width/2 + tracegrid*cuCreal(zeta));
+                    cv::Point2d tracedzeta(height/2 + tracegrid*cuCimag(dzeta), width/2 + tracegrid*cuCreal(dzeta));
+                    cv::line(spiralimage, tracezeta, tracedzeta, unity, 1);
+                }
+            }
+            // Coordinate grid
+            cv::Point2d realbegin(height / 2, 0);
+            cv::Point2d realend(height/2, width);
+            cv::Point2d imagbegin(0, width/2);
+            cv::Point2d imagend(height, width/2);
+            cv::Point2d center(height / 2, width / 2);
+            cv::line(spiralimage, realbegin, realend, grid, 1);
+            cv::line(spiralimage, imagbegin, imagend, grid, 1);
+            cv::circle(spiralimage, center, tracegrid, grid, 1);
+            // Angle grid
+            cv::Vec3f output(255,255,255);
+            double realdir = cuCreal(zeta)/cuCabs(zeta);
+            double imagdir = cuCimag(zeta)/cuCabs(zeta);
+            cv::Point2d crosshair(height/2 + tracegrid*cuCimag(zeta), width/2 + tracegrid*cuCreal(zeta));
+            cv::Point2d opposition(height/2 - tracegrid*imagdir, width/2 - tracegrid*realdir);
+            cv::Point2d direction(height/2 + tracegrid*(cuCabs(zeta) >= 1.64493406685 ? cuCimag(zeta) : 1.64493406685*imagdir), width/2 + tracegrid*(cuCabs(zeta) >= 1.64493406685 ? cuCreal(zeta) : 1.64493406685*realdir));
+            cv::line(spiralimage, center, opposition, grid, 1);
+            cv::line(spiralimage, center, direction, grid, 1);
+            // Critical line
+            cv::Vec3f criticalline(240,240,240);
+            for (int t_k = 0; t_k <= k; t_k++) {
+                for (int t_y = 0; t_y <= (t_k == k ? y : HEIGHT) - 1; t_y += 1) {
+                    double2 bzeta = h_plot_group[t_k].first[WIDTH/2*HEIGHT + t_y];
+                    double2 dzeta = h_plot_group[t_k].first[WIDTH/2*HEIGHT + t_y + 1];
+                    cv::Point2d tracezeta(height/2 + tracegrid*cuCimag(bzeta), width/2 + tracegrid*cuCreal(bzeta));
+                    cv::Point2d tracedzeta(height/2 + tracegrid*cuCimag(dzeta), width/2 + tracegrid*cuCreal(dzeta));
+                    cv::line(spiralimage, tracezeta, tracedzeta, criticalline, 1);
+                }
+            }
+            // Output
+            cv::drawMarker(spiralimage, crosshair, output, cv::MARKER_TILTED_CROSS, 4, 2);
+            cv::rotate(spiralimage, spiralimage, cv::ROTATE_90_COUNTERCLOCKWISE);
+
+            // Concatenate
+            if (y == HEIGHT - 1) {
+                headertext = std::stringstream();
+                headertext << PREFIX << "frame/" << std::setfill('0') << std::setw(5) << (int)cuCimag(h_input[0]) << ".png";
+                cv::imwrite(headertext.str(), spiralimage);
+            }
+            cv::vconcat(header, spiralimage, spiralimage);
+            cv::vconcat(spiralimage, footer, spiralimage);
+            writer.write(spiralimage);
+            printf("\r%5d.x%04X", (int)cuCimag(h_input[0]), y);
+        }
+    }
+    writer.release();
+    printf("\n");
 }
 
 void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int increment = 4) {
@@ -727,18 +795,23 @@ void generatedepthplot(int initial = 0, int interval = 256, int unitsquare = 256
     interval += initial;
     std::cout << "Generating sequences of images starting at height " << initial << ", resolution " << unitsquare << std::endl;
     // Allocate host memory for the plot
-    cuDoubleComplex *h_cube;
-    getStatus(cudaMallocHost(&h_cube, MEMSIZE), "(h_cube) Failed to allocate cudaMallocHost! ");
-    cuDoubleComplex *h_sum;
-    getStatus(cudaMallocHost(&h_sum, MEMSIZE), "(h_sum) Failed to allocate cudaMallocHost! ");
-    cuDoubleComplex *h_plot;
-    getStatus(cudaMallocHost(&h_plot, OUTPUTMEMSIZE), "(h_plot) Failed to allocate cudaMallocHost! ");
-    cuDoubleComplex *h_input;
-    getStatus(cudaMallocHost(&h_input, OUTPUTMEMSIZE), "(h_input) Failed to allocate cudaMallocHost! ");
+    cuDoubleComplex *h_cube = (cuDoubleComplex *)malloc(MEMSIZE);
+    cuDoubleComplex *h_sum = (cuDoubleComplex *)malloc(MEMSIZE);
+    // Use pinned memory for the plot and input
+    cuDoubleComplex *h_plot, *h_input;
+    std::vector<std::pair<cuDoubleComplex *, cuDoubleComplex *>> h_plot_group;
+    for (int k = 0; k < BATCHES; k++) {
+        getStatus(cudaMallocHost(&h_plot, OUTPUTMEMSIZE), "(h_plot) Failed to allocate cudaMallocHost! ");
+        getStatus(cudaMallocHost(&h_input, OUTPUTMEMSIZE), "(h_input) Failed to allocate cudaMallocHost! ");
+        h_plot_group.push_back({h_plot, h_input});
+    }
+    unsigned batchnum = 0;
     for (int ini = initial; ini <= interval; ini += increment) {
         // Plot
         double x_ini = -1.5;
-        double y_ini = -1 + ini;
+        double y_ini = ini;
+        h_plot = h_plot_group[batchnum].first;
+        h_input = h_plot_group[batchnum].second;
         cudaZetaDepth(h_cube, h_sum, h_plot, x_ini, y_ini, unitsquare, unitsquare, h_input);
 
         // Test output
@@ -785,12 +858,19 @@ void generatedepthplot(int initial = 0, int interval = 256, int unitsquare = 256
 
         // Plot
         plot(h_plot, h_input, ini, unitsquare);
+        batchnum++;
+        if (batchnum == BATCHES) {
+            plot(h_plot_group, ini - (BATCHES - 1)*interval, unitsquare);
+            batchnum = 0;
+        }
     }
     // Free memory
     free(h_cube);
     free(h_sum);
-    cudaFreeHost(h_plot);
-    cudaFreeHost(h_input);
+    for (int k = 0; k < BATCHES; k++) {
+        cudaFreeHost(h_plot_group[k].first);
+        cudaFreeHost(h_plot_group[k].second);
+    }
 }
 
 int main()
@@ -817,7 +897,7 @@ int main()
     }
 
     // Generate plot
-    generatedepthplot(7000, 1024, 64, 4);
+    generatedepthplot(1017420, 100000, 64, 5);
 
     return EXIT_SUCCESS;
 }
