@@ -45,7 +45,7 @@
 #define HASHMARK 4
 
 // Saved output
-#define PREFIX "/home/samaria/S/test1M/"
+#define PREFIX "/home/samaria/S/zeta/"
 
 // Kernel definition
 /*
@@ -897,7 +897,7 @@ int main()
     }
 
     // Generate plot
-    generatedepthplot(1017420, 100000, 64, 5);
+    generatedepthplot(0, 40960, 64, 5);
 
     return EXIT_SUCCESS;
 }
