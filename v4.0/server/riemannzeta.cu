@@ -181,9 +181,10 @@ __global__ void etaterms(cuDoubleComplex *d_cube, cuDoubleComplex *d_input)
         temp = make_cuDoubleComplex(smagnitude * cos(angle), -smagnitude * sin(angle));
         sum = cuCadd(sum, temp);
         if ((idx | idy | idz) == 0 && (k & ((1 << 4) - 1)) == 0) {
-            printf("\r\tIteration %d of %d\n", k, cascade);
+            //printf("\r\tIteration %d of %d", k, cascade);
         }
     }
+    //printf("\n");
     __syncthreads();
 
     // Average out, only applicable for the last block and thread by depth
@@ -291,8 +292,8 @@ __global__ void getLayer(cuDoubleComplex *d_cube, cuDoubleComplex *d_plot, unsig
 
 void cudaZeta(cuDoubleComplex *h_plot, double x_ini, double y_ini, double x_res, double y_res, cuDoubleComplex *h_input)
 {
-    clock_t t0 = clock();
     std::cout << "Generate plot starting from height " << y_ini << std::endl;
+    clock_t t0 = clock();
 
     // Allocate device memory for the plot
     cuDoubleComplex *d_plot, *d_input;
@@ -334,12 +335,13 @@ void cudaZetaDepth(cuDoubleComplex *h_cube, cuDoubleComplex *h_sum, cuDoubleComp
 
     // Perform the term by term computation
     t0 = clock();
-    std::cout << "Generate plot starting from height " << y_ini << std::endl;
+    std::cout << "Starting plot starting from height " << y_ini << std::endl;
     cudaDeviceSynchronize();
     id<<<dim3(WIDTH, 1), dim3(1, HEIGHT)>>>(d_input, x_ini, y_ini, x_res, y_res);
     cudaDeviceSynchronize();
     etaterms<<<dim3(WIDTH, HEIGHT, 1 << DEPTHBLOCKBITS), 1 << DEPTHTHREADBITS>>>(d_cube, d_input);
     cudaDeviceSynchronize();
+    std::cout << "Midway of plot generation starting from height " << y_ini << " in time " << (float)(clock() - t0)/CLOCKS_PER_SEC << "s." << std::endl;
 
     // Merge the terms by depth (contiguous range of 1024 blocks)
     warpReduceSum<<<dim3(WIDTH, HEIGHT, DEPTH >> 7), dim3(1, 1, 64)>>>(d_cube, d_sum, 0, 64);
@@ -352,7 +354,7 @@ void cudaZetaDepth(cuDoubleComplex *h_cube, cuDoubleComplex *h_sum, cuDoubleComp
     cudaDeviceSynchronize();
 
     // Finish execution and free memory
-    std::cout << "Generated plot starting from height " << y_ini << " in time " << (float)(clock() - t0)/CLOCKS_PER_SEC << "s." << std::endl;
+    std::cout << "Completed plot generation starting from height " << y_ini << " in time " << (float)(clock() - t0)/CLOCKS_PER_SEC << "s." << std::endl;
     getStatus(cudaMemcpy(h_cube, d_cube, MEMSIZE, cudaMemcpyDeviceToHost),"(cube) Failed to transfer to hostside!");
     getStatus(cudaMemcpy(h_sum, d_sum, MEMSIZE, cudaMemcpyDeviceToHost),"(sum) Failed to transfer to hostside!");
     cudaFree(d_cube);
@@ -591,6 +593,9 @@ void plot(cuDoubleComplex *h_plot, cuDoubleComplex *h_input, int ini, unsigned u
 }
 
 void plot(std::vector<std::pair<cuDoubleComplex *, cuDoubleComplex *>>h_plot_group, int ini, unsigned unitsquare) {
+
+    clock_t t0 = clock();
+
     // Draw frames
     const int height = 1024;
     const int width = 1920;
@@ -766,12 +771,13 @@ void plot(std::vector<std::pair<cuDoubleComplex *, cuDoubleComplex *>>h_plot_gro
         }
     }
     writer.release();
-    printf("\n");
+    std::cout << "\033[32mGenerated phase plot starting in time " << (float)(clock() - t0)/CLOCKS_PER_SEC << "s." << std::endl << "\033[0m\n";
 }
 
 void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int increment = 4) {
     interval += initial;
     std::cout << "Generating sequences of images starting at height " << initial << ", resolution " << unitsquare << std::endl;
+    
     for (int ini = initial; ini <= interval; ini += increment) {
         // Allocate host memory for the plot
         cuDoubleComplex *h_plot;
@@ -791,6 +797,47 @@ void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int
     }
 }
 
+void testplot(cuDoubleComplex *h_cube, cuDoubleComplex *h_sum, cuDoubleComplex *h_plot) {
+    for (int z = 0; z < 256; z++)
+    {
+        std::cout << "depth " << z << std::endl;
+        for (int x = 0; x < 16; x += 1)
+        {
+            for (int y = 0; y < 9; y += 1)
+            {
+                std::cout << "(" << std::setw(5) << h_cube[HEIGHT * DEPTH * x + DEPTH * y + z].x << " + ";
+                std::cout <<  std::setw(5) << h_cube[HEIGHT * DEPTH * x + DEPTH * y + z].y << "j, " << ")";
+            }
+            std::cout << std::endl;
+        }
+    }
+    for (int z = 0; z < 129; z++)
+    {
+        std::cout << "sum " << z << std::endl;
+        for (int x = 0; x < 16; x += 1)
+        {
+            for (int y = 0; y < 9; y += 1)
+            {
+                cuDoubleComplex s = h_sum[HEIGHT * DEPTH * x + DEPTH * y + z];
+                printf("(%.2f,%.2fj)", s.x, s.y);
+            }
+            std::cout << std::endl;
+        }
+    }
+    {
+        std::cout << "total " << std::endl;
+        for (int x = 0; x < 16; x += 1)
+        {
+            for (int y = 0; y < 9; y += 1)
+            {
+                cuDoubleComplex s = h_plot[HEIGHT * x + y];
+                printf("[%.2f,%.2fj]", s.x, s.y);
+            }
+            std::cout << std::endl;
+        }
+    }
+}
+
 void generatedepthplot(int initial = 0, int interval = 256, int unitsquare = 256, int increment = 4) {
     interval += initial;
     std::cout << "Generating sequences of images starting at height " << initial << ", resolution " << unitsquare << std::endl;
@@ -805,56 +852,18 @@ void generatedepthplot(int initial = 0, int interval = 256, int unitsquare = 256
         getStatus(cudaMallocHost(&h_input, OUTPUTMEMSIZE), "(h_input) Failed to allocate cudaMallocHost! ");
         h_plot_group.push_back({h_plot, h_input});
     }
+    // Driver code for plot
     unsigned batchnum = 0;
     for (int ini = initial; ini <= interval; ini += increment) {
-        // Plot
+        // Set up plot
         double x_ini = -1.5;
         double y_ini = ini;
         h_plot = h_plot_group[batchnum].first;
         h_input = h_plot_group[batchnum].second;
-        cudaZetaDepth(h_cube, h_sum, h_plot, x_ini, y_ini, unitsquare, unitsquare, h_input);
 
-        // Test output
-        if (ini == initial) {
-            for (int z = 0; z < 256; z++)
-            {
-                std::cout << "depth " << z << std::endl;
-                for (int x = 0; x < 16; x += 1)
-                {
-                    for (int y = 0; y < 9; y += 1)
-                    {
-                        std::cout << "(" << std::setw(5) << h_cube[HEIGHT * DEPTH * x + DEPTH * y + z].x << " + ";
-                        std::cout <<  std::setw(5) << h_cube[HEIGHT * DEPTH * x + DEPTH * y + z].y << "j, " << ")";
-                    }
-                    std::cout << std::endl;
-                }
-            }
-            for (int z = 0; z < 129; z++)
-            {
-                std::cout << "sum " << z << std::endl;
-                for (int x = 0; x < 16; x += 1)
-                {
-                    for (int y = 0; y < 9; y += 1)
-                    {
-                        cuDoubleComplex s = h_sum[HEIGHT * DEPTH * x + DEPTH * y + z];
-                        printf("(%.2f,%.2fj)", s.x, s.y);
-                    }
-                    std::cout << std::endl;
-                }
-            }
-            {
-                std::cout << "total " << std::endl;
-                for (int x = 0; x < 16; x += 1)
-                {
-                    for (int y = 0; y < 9; y += 1)
-                    {
-                        cuDoubleComplex s = h_plot[HEIGHT * x + y];
-                        printf("[%.2f,%.2fj]", s.x, s.y);
-                    }
-                    std::cout << std::endl;
-                }
-            }
-        }
+        // Calculate
+        cudaZetaDepth(h_cube, h_sum, h_plot, x_ini, y_ini, unitsquare, unitsquare, h_input);
+        // if (ini == initial) testplot(h_cube, h_sum, h_plot);
 
         // Plot
         plot(h_plot, h_input, ini, unitsquare);
@@ -873,7 +882,7 @@ void generatedepthplot(int initial = 0, int interval = 256, int unitsquare = 256
     }
 }
 
-int main()
+int main(int argc, char *argv[])
 {
     // List CUDA devices
     int deviceCount;
@@ -896,8 +905,13 @@ int main()
         //  printf("\tCluster support  : %d\n", deviceProp.clusterLaunch);
     }
 
+    // Obtain command-line arguments
+    int initial = argc > 1 ? atoi(argv[1]) : 0;
+    int interval = argc > 2 ? atoi(argv[2]) : 0;
+    int increment = argc > 3 ? atoi(argv[3]) : 5;
+
     // Generate plot
-    generatedepthplot(0, 40960, 64, 5);
+    generatedepthplot(initial, interval, 64, increment);
 
     return EXIT_SUCCESS;
 }
