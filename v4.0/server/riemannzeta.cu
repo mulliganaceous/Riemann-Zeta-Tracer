@@ -36,7 +36,9 @@
 #define DEPTH (1 << (DEPTHBLOCKBITS + DEPTHTHREADBITS))
 #define CASCADE 1024
 #define TERMS (DEPTH*CASCADE)
-#define BATCHES 1
+#ifndef BATCHES
+    #define BATCHES 1
+#endif
 #define MEMSIZE (sizeof(cuDoubleComplex) * WIDTH * HEIGHT * DEPTH)
 #define OUTPUTMEMSIZE (sizeof(cuDoubleComplex) * WIDTH * HEIGHT)
 #define IMGMEMSIZE (sizeof(unsigned char) * WIDTH * HEIGHT)
@@ -774,7 +776,7 @@ void plot(std::vector<std::pair<cuDoubleComplex *, cuDoubleComplex *>>h_plot_gro
     std::cout << "\033[32mGenerated phase plot starting in time " << (float)(clock() - t0)/CLOCKS_PER_SEC << "s." << std::endl << "\033[0m\n";
 }
 
-void generateplot(int initial = 0, int interval = 256, int unitsquare = 256, int increment = 4) {
+void generateplot(int initial = 0, int interval = 100, int unitsquare = 256, int increment = 5) {
     interval += initial;
     std::cout << "Generating sequences of images starting at height " << initial << ", resolution " << unitsquare << std::endl;
     
@@ -838,7 +840,7 @@ void testplot(cuDoubleComplex *h_cube, cuDoubleComplex *h_sum, cuDoubleComplex *
     }
 }
 
-void generatedepthplot(int initial = 0, int interval = 256, int unitsquare = 256, int increment = 4) {
+void generatedepthplot(int initial = 0, int interval = 100, int unitsquare = 256, int increment = 5) {
     interval += initial;
     std::cout << "Generating sequences of images starting at height " << initial << ", resolution " << unitsquare << std::endl;
     // Allocate host memory for the plot
@@ -848,9 +850,10 @@ void generatedepthplot(int initial = 0, int interval = 256, int unitsquare = 256
     cuDoubleComplex *h_plot, *h_input;
     std::vector<std::pair<cuDoubleComplex *, cuDoubleComplex *>> h_plot_group;
     for (int k = 0; k < BATCHES; k++) {
-        getStatus(cudaMallocHost(&h_plot, OUTPUTMEMSIZE), "(h_plot) Failed to allocate cudaMallocHost! ");
-        getStatus(cudaMallocHost(&h_input, OUTPUTMEMSIZE), "(h_input) Failed to allocate cudaMallocHost! ");
-        h_plot_group.push_back({h_plot, h_input});
+        cuDoubleComplex *h_plotb, *h_inputb;
+        getStatus(cudaMallocHost(&h_plotb, OUTPUTMEMSIZE), "(h_plot) Failed to allocate cudaMallocHost! ");
+        getStatus(cudaMallocHost(&h_inputb, OUTPUTMEMSIZE), "(h_input) Failed to allocate cudaMallocHost! ");
+        h_plot_group.push_back({h_plotb, h_inputb});
     }
     // Driver code for plot
     unsigned batchnum = 0;
@@ -909,6 +912,7 @@ int main(int argc, char *argv[])
     int initial = argc > 1 ? atoi(argv[1]) : 0;
     int interval = argc > 2 ? atoi(argv[2]) : 0;
     int increment = argc > 3 ? atoi(argv[3]) : 5;
+    std::cout<< BATCHES<<"\n";
 
     // Generate plot
     generatedepthplot(initial, interval, 64, increment);
