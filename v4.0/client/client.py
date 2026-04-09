@@ -1,4 +1,4 @@
-#!/home/user/.pyenv/shims/python
+#!/usr/bin/env python3
 import socket
 import struct
 import matplotlib.pyplot as plt

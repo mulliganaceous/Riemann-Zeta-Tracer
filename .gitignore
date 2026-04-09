@@ -1,1 +1,22 @@
 bin*
+
+# Build artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+build.ninja
+Testing/
+*.o
+*.exe
+*.out
+
+# Compiled binaries
+v3.0/riemannzeta
+
+# IDE / editor files
+.qt/
+.cmake/
+.qtc/
+
+# Output files
+output/
