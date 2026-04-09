@@ -45,7 +45,7 @@
 #define HASHMARK 4
 
 // Saved output
-#define PREFIX "/home/samaria/S/zeta/"
+#define PREFIX "./output/"
 
 // Kernel definition
 /*
